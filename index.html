@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GNSSJP PRO - Motor Geodésico Web</title>
+    <title>GNSS Engine L1-Sinc DGPS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -69,7 +69,6 @@
         </section>
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual en RAM)</h2>
-            <p class="text-sm text-gray-400 mb-4">Sube el archivo de efemérides descompreso (.nav o .rnx).</p>
             <form id="form-tab2" onsubmit="procesarTab2JS(event)">
                 <div class="mb-4">
                     <label class="block text-sm mb-1 text-blue-400 font-bold">Archivo de Efemérides (.nav):</label>
@@ -382,37 +381,6 @@
             let az = Math.atan2(e, n) * 180.0 / Math.PI;
             if (az < 0) az += 360.0;
             return [el, az];
-        }
-
-        function calcularPosicionSateliteWGS84(eph, t_emision, tau_vuelo, sys_char) {
-            if (!eph || eph.sqrtA <= 0.0) return null;
-            let mu_sys = (sys_char === 'E' || sys_char === 'C') ? 3.986004418e14 : MU;
-            let omega_e_sys = (sys_char === 'C') ? 7.292115e-5 : OMEGA_E;
-            let A = Math.pow(eph.sqrtA, 2);
-            let n0 = Math.sqrt(mu_sys / Math.pow(A, 3));
-            let t_k = t_emision - eph.Toe;
-            if (sys_char === 'C') t_k -= 14.0;
-            if (t_k > 302400) t_k -= 604800; else if (t_k < -302400) t_k += 604800;
-            let M_k = eph.M0 + (n0 + eph.Delta_n) * t_k, E_k = M_k;
-            for (let i = 0; i < 5; i++) E_k = M_k + eph.e * Math.sin(E_k);
-            let dt_sat = eph.af0 + eph.af1 * t_k + eph.af2 * Math.pow(t_k, 2);
-            let nu_k = Math.atan2((Math.sqrt(1 - Math.pow(eph.e, 2)) * Math.sin(E_k)), (Math.cos(E_k) - eph.e));
-            let phi_k = nu_k + eph.omega;
-            let u_k = phi_k + eph.Cus * Math.sin(2 * phi_k) + eph.Cuc * Math.cos(2 * phi_k);
-            let r_k = A * (1 - eph.e * Math.cos(E_k)) + eph.Crs * Math.sin(2 * phi_k) + eph.Crc * Math.cos(2 * phi_k);
-            let i_k = eph.i0 + eph.Cic * Math.cos(2 * phi_k) + eph.Cis * Math.sin(2 * phi_k) + eph.IDOT * t_k;
-            let x_k = r_k * Math.cos(u_k), y_k = r_k * Math.sin(u_k);
-            let omega_k = eph.OMEGA + (eph.OMEGA_DOT - omega_e_sys) * t_k - omega_e_sys * eph.Toe;
-            let xs = x_k * Math.cos(omega_k) - y_k * Math.cos(i_k) * Math.sin(omega_k);
-            let ys = x_k * Math.sin(omega_k) + y_k * Math.cos(i_k) * Math.cos(omega_k);
-            let zs = y_k * Math.sin(i_k);
-            let theta = omega_e_sys * tau_vuelo;
-            return [xs * Math.cos(theta) + ys * Math.sin(theta), -xs * Math.sin(theta) + ys * Math.cos(theta), zs, dt_sat];
-        }
-
-        function seleccionarEfemerideOptima(ephList, t_target) {
-            if (!ephList || ephList.length === 0) return null;
-            return ephList.reduce((prev, curr) => Math.abs(curr.Toe - t_target) < Math.abs(prev.Toe - t_target) ? curr : prev);
         }
         // =====================================================================
         // PARSER Y FUNCIONES DE DGPS
