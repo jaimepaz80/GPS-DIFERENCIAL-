@@ -137,7 +137,7 @@
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-yellow-400 font-bold text-sm">COORDENADA ABSOLUTA BASE (AUTO-LLENADO)</h3></div>
+                    <div class="col-span-3"><h3 class="text-yellow-400 font-bold text-sm">COORDENADA ABSOLUTA BASE (AUTO-LLENADO / HEREDADA)</h3></div>
                     <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" id="t4_utm_n" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Este (X):</label><input type="number" step="any" id="t4_utm_e" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" id="t4_utm_c" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -156,13 +156,13 @@
                 </div>
 
                 <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / EDITABLE)</h3></div>
+                    <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / HEREDADO)</h3></div>
                     <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" id="t4_err_h" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                     <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" id="t4_err_v" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / EDITABLE)</h3></div>
+                    <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / HEREDADO)</h3></div>
                     <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" id="t4_mask" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" id="t4_cp" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" id="t4_ca" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -412,6 +412,11 @@
             return [xs * Math.cos(theta) + ys * Math.sin(theta), -xs * Math.sin(theta) + ys * Math.cos(theta), zs, dt_sat];
         }
 
+        function seleccionarEfemerideOptima(ephList, t_target) {
+            if (!ephList || ephList.length === 0) return null;
+            return ephList.reduce((prev, curr) => Math.abs(curr.Toe - t_target) < Math.abs(prev.Toe - t_target) ? curr : prev);
+        }
+
         // =====================================================================
         // PARSER Y FUNCIONES DE DGPS
         // =====================================================================
@@ -544,9 +549,8 @@
                 for (let s in sd_epoca) {
                     if (s === '_meta' || sd_epoca[s]['sd_P'] === null) continue;
                     let tau = sd_epoca[s]['pr_r'] / C_LIGHT;
-                    let ephList = nav[s];
-                    if (!ephList || ephList.length === 0) continue;
-                    let eph = ephList.reduce((prev, curr) => Math.abs(curr.Toe - (tr-tau)) < Math.abs(prev.Toe - (tr-tau)) ? curr : prev);
+                    let eph = seleccionarEfemerideOptima(nav[s], tr-tau);
+                    if (!eph) continue;
                     
                     let sp = calcularPosicionSateliteWGS84(eph, tr-tau, tau, s[0]);
                     if (sp) {
@@ -647,24 +651,43 @@
 
         function estadisticaDesacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max) {
             if (!coordenadas || coordenadas.length === 0) return [null];
-            let getMedian = (lst) => { let s = [...lst].sort((a,b)=>a-b), n = s.length; return n%2 ? s[Math.floor(n/2)] : (s[n/2-1]+s[n/2])/2.0; };
-            let med_N = getMedian(coordenadas.map(c=>c[0])), med_E = getMedian(coordenadas.map(c=>c[1])), med_Z = getMedian(coordenadas.map(c=>c[2]));
+            let getMedian = (lst) => { 
+                let s = [...lst].sort((a,b)=>a-b), n = s.length; 
+                if (n === 0) return 0;
+                return n%2 ? s[Math.floor(n/2)] : (s[n/2-1]+s[n/2])/2.0; 
+            };
+            
+            let med_N = getMedian(coordenadas.map(c=>c[0]));
+            let med_E = getMedian(coordenadas.map(c=>c[1]));
+            let med_Z = getMedian(coordenadas.map(c=>c[2]));
             
             let valid_coords = coordenadas.filter(c => {
-                let dh = Math.hypot(c[0]-med_N, c[1]-med_E), dv = Math.abs(c[2]-med_Z);
+                let dh = Math.hypot(c[0]-med_N, c[1]-med_E);
+                let dv = Math.abs(c[2]-med_Z);
                 if ((err_hor_max > 0.0 && dh > err_hor_max) || (err_ver_max > 0.0 && dv > err_ver_max)) return false;
                 return true;
             });
             if (valid_coords.length === 0) return [null];
             
-            let calcMeanStd = (arr) => { let m = arr.reduce((a,b)=>a+b)/arr.length; return [m, arr.length>1 ? Math.sqrt(arr.reduce((a,b)=>a+Math.pow(b-m,2),0)/arr.length) : 0.0]; };
-            let [N_m, N_s] = calcMeanStd(valid_coords.map(c=>c[0])), [E_m, E_s] = calcMeanStd(valid_coords.map(c=>c[1])), [Z_m, Z_s] = calcMeanStd(valid_coords.map(c=>c[2]));
+            let calcMeanStd = (arr) => { 
+                let n = arr.length;
+                if (n === 0) return [0, 0];
+                let m = arr.reduce((a,b)=>a+b, 0)/n; 
+                return [m, n>1 ? Math.sqrt(arr.reduce((a,b)=>a+Math.pow(b-m,2), 0)/n) : 0.0]; 
+            };
             
-            let N_f = valid_coords.map(c=>c[0]).filter(x => N_s === 0 || Math.abs(x-N_m) <= conf_plani*N_s);
-            let E_f = valid_coords.map(c=>c[1]).filter(x => E_s === 0 || Math.abs(x-E_m) <= conf_plani*E_s);
-            let Z_f = valid_coords.map(c=>c[2]).filter(x => Z_s === 0 || Math.abs(x-Z_m) <= conf_alti*Z_s);
+            let N_v = valid_coords.map(c=>c[0]), E_v = valid_coords.map(c=>c[1]), Z_v = valid_coords.map(c=>c[2]);
+            let [N_m, N_s] = calcMeanStd(N_v), [E_m, E_s] = calcMeanStd(E_v), [Z_m, Z_s] = calcMeanStd(Z_v);
             
-            return [N_f.reduce((a,b)=>a+b)/Math.max(1,N_f.length), E_f.reduce((a,b)=>a+b)/Math.max(1,E_f.length), Z_f.reduce((a,b)=>a+b)/Math.max(1,Z_f.length), N_s, E_s, Z_s, Math.min(N_f.length, E_f.length, Z_f.length), 0];
+            let N_f = N_s > 0 ? N_v.filter(x => Math.abs(x-N_m) <= conf_plani*N_s) : N_v;
+            let E_f = E_s > 0 ? E_v.filter(x => Math.abs(x-E_m) <= conf_plani*E_s) : E_v;
+            let Z_f = Z_s > 0 ? Z_v.filter(x => Math.abs(x-Z_m) <= conf_alti*Z_s) : Z_v;
+            
+            let sum_N = N_f.reduce((a,b)=>a+b, 0), len_N = Math.max(1, N_f.length);
+            let sum_E = E_f.reduce((a,b)=>a+b, 0), len_E = Math.max(1, E_f.length);
+            let sum_Z = Z_f.reduce((a,b)=>a+b, 0), len_Z = Math.max(1, Z_f.length);
+
+            return [sum_N/len_N, sum_E/len_E, sum_Z/len_Z, N_s, E_s, Z_s, Math.min(len_N, len_E, len_Z), 0];
         }
 
         // =====================================================================
@@ -684,6 +707,7 @@
                 
                 let base_sinc = {}, roverTows = Object.keys(window.MemoriaVolatil.roverRaw).map(Number).sort((a,b)=>a-b), baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
                 for (let tr of roverTows) {
+                    if (baseTows.length === 0) continue;
                     let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
                     if (Math.abs(baseTows[idx] - tr) <= 0.05) { base_sinc[tr] = window.MemoriaVolatil.baseRaw[baseTows[idx]]; base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta']; }
                 }
@@ -800,13 +824,25 @@
                 }
 
                 if (best_rmse !== Infinity) {
-                    document.getElementById('t4_utm_n').value = u_n; document.getElementById('t4_utm_e').value = u_e; document.getElementById('t4_utm_c').value = u_c;
-                    document.getElementById('t4_utm_h').value = u_h; document.getElementById('t4_utm_hem').value = u_hem;
-                    document.getElementById('t4_mask').value = best_params.mask; document.getElementById('t4_cp').value = best_params.cp; document.getElementById('t4_ca').value = best_params.ca;
-                    document.getElementById('t4_err_h').value = best_params.eh; document.getElementById('t4_err_v').value = best_params.ev;
+                    // INYECCIÓN DIRECTA DE VARIABLES DEL DOM HACIA PESTAÑA 4
+                    document.getElementById('t4_utm_n').value = u_n; 
+                    document.getElementById('t4_utm_e').value = u_e; 
+                    document.getElementById('t4_utm_c').value = u_c;
+                    document.getElementById('t4_utm_h').value = u_h; 
+                    document.getElementById('t4_utm_hem').value = u_hem;
                     
-                    document.getElementById('t3_mask').value = best_params.mask; document.getElementById('t3_cp').value = best_params.cp; document.getElementById('t3_ca').value = best_params.ca;
-                    document.getElementById('t3_err_h').value = best_params.eh; document.getElementById('t3_err_v').value = best_params.ev;
+                    document.getElementById('t4_mask').value = best_params.mask; 
+                    document.getElementById('t4_cp').value = best_params.cp; 
+                    document.getElementById('t4_ca').value = best_params.ca;
+                    document.getElementById('t4_err_h').value = best_params.eh; 
+                    document.getElementById('t4_err_v').value = best_params.ev;
+                    
+                    // REEMPLAZO DIRECTO EN PESTAÑA 3 PARA LA INTERFAZ
+                    document.getElementById('t3_mask').value = best_params.mask; 
+                    document.getElementById('t3_cp').value = best_params.cp; 
+                    document.getElementById('t3_ca').value = best_params.ca;
+                    document.getElementById('t3_err_h').value = best_params.eh; 
+                    document.getElementById('t3_err_v').value = best_params.ev;
 
                     display.innerHTML += `\n========================================================\n` +
                                          `      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n` +
@@ -920,11 +956,6 @@
     </script>
 </body>
 </html>
-                                     `  [-] Error Espacial (3D RMS): ± 0.021 m\n\n` +
-                                     `[4] RESULTADOS VECTORIALES FINALES\n` +
-                                     `------------------------------------------------------------------------\n` +
-                                     `  * COORDENADA DE CONTROL (BASE FIJA):\n` +
-                                     `      Norte : ${u_n.toFixed(3)} m\n` +
                                      `      Este  : ${u_e.toFixed(3)} m\n` +
                                      `      Cota  : ${u_c.toFixed(3)} m\n\n` +
                                      `  * COORDENADA CALCULADA (AJUSTE IRLS DGPS FLOAT (DGPS)):\n` +
