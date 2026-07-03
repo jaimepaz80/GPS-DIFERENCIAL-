@@ -776,7 +776,7 @@
                         coords_raw.push([nt, et, al]);
                     }
                 }
-                if(coords_raw.length === 0) throw new Error("Nube de puntos bruta colapsada.");
+                if(coords_raw.length === 0) throw new Error("Nube de puntos bruta colapsada. Revise los archivos Base y Rover.");
                 
                 let deltas_h = coords_raw.map(c => Math.hypot(c[0]-u_n_r, c[1]-u_e_r)).sort((a,b)=>a-b);
                 let deltas_v = coords_raw.map(c => Math.abs(c[2]-u_c_r)).sort((a,b)=>a-b);
@@ -786,13 +786,13 @@
                 display.textContent += `  [*] Límite Horizontal Inyectado: ${best_eh.toFixed(14)} m\n  [*] Límite Vertical Inyectado: ${best_ev.toFixed(14)} m\n\n`;
                 display.textContent += "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n";
                 
-                // FASE 2: GRID ZOOMING MONTE CARLO
+                // FASE 2: GRID ZOOMING MONTE CARLO (16 NIVELES DE HIPER-PRECISIÓN)
                 let best_rmse = Infinity, best_params = {};
                 let m_center = 10.0, m_span = 5.0, cp_center = 2.0, cp_span = 1.5, ca_center = 2.0, ca_span = 1.5;
                 
-                for (let nivel = 0; nivel < 8; nivel++) {
-                    display.textContent += `  [+] Refinando espacio de búsqueda (Zoom ${nivel+1}/8)...\n`; display.scrollTop = display.scrollHeight;
-                    await new Promise(r => setTimeout(r, 10));
+                for (let nivel = 0; nivel < 16; nivel++) {
+                    display.textContent += `  [+] Refinando espacio de búsqueda (Zoom ${nivel+1}/16)...\n`; display.scrollTop = display.scrollHeight;
+                    await new Promise(r => setTimeout(r, 5));
                     
                     let m_grid = [...new Set([m_center - m_span, m_center, m_center + m_span].map(x => Math.max(5.0, Math.min(15.0, x))))];
                     let cp_grid = [...new Set([cp_center - cp_span, cp_center, cp_center + cp_span].map(x => Math.max(0.1, Math.min(5.0, x))))];
