@@ -696,7 +696,7 @@
         window.procesarTab1JS = async function(e) {
             e.preventDefault();
             const display = document.getElementById('console1');
-            display.innerHTML = "> [SISTEMA] Iniciando Etapa 1: Emparejamiento Base Pivote y Rover de Calibración...\n";
+            display.textContent = "> [SISTEMA] Iniciando Etapa 1: Emparejamiento Base Pivote y Rover de Calibración...\n";
             try {
                 const fb = document.getElementById('obs_base').files[0];
                 const fr = document.getElementById('obs_rover').files[0];
@@ -713,42 +713,42 @@
                 }
                 window.MemoriaVolatil.baseSinc = base_sinc;
                 
-                display.innerHTML += `[PROGRESO] Cotejando épocas sin distorsión... 100%\n`;
-                display.innerHTML += `\n========================================================================\n` +
-                                     `    AUDITORÍA FORENSE DE EMPAREJAMIENTO DE ÉPOCAS\n` +
-                                     `========================================================================\n` +
-                                     `[1] PARÁMETROS DE CONTROL (BASE) : ${fb.name}\n` +
-                                     `[2] PARÁMETROS DEL MÓVIL (ROVER) : ${fr.name}\n` +
-                                     `[3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)\n` +
-                                     `  [-] Tasa de Éxito sobre Rover  : ${((Object.keys(base_sinc).length / roverTows.length)*100).toFixed(1)}%\n` +
-                                     `========================================================================\n\n[SUCCESS]`;
+                display.textContent += `[PROGRESO] Cotejando épocas sin distorsión... 100%\n`;
+                display.textContent += `\n========================================================================\n` +
+                                       `    AUDITORÍA FORENSE DE EMPAREJAMIENTO DE ÉPOCAS\n` +
+                                       `========================================================================\n` +
+                                       `[1] PARÁMETROS DE CONTROL (BASE) : ${fb.name}\n` +
+                                       `[2] PARÁMETROS DEL MÓVIL (ROVER) : ${fr.name}\n` +
+                                       `[3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)\n` +
+                                       `  [-] Tasa de Éxito sobre Rover  : ${((Object.keys(base_sinc).length / roverTows.length)*100).toFixed(1)}%\n` +
+                                       `========================================================================\n\n[SUCCESS]`;
                 document.getElementById('btn-tab2').classList.remove('disabled-tab');
                 document.getElementById('btn-pdf-tab1').classList.remove('hidden');
                 display.scrollTop = display.scrollHeight;
-            } catch (err) { display.innerHTML += `\n> [ERROR] ${err.message}`; }
+            } catch (err) { display.textContent += `\n> [ERROR] ${err.message}`; }
         };
 
         window.procesarTab2JS = async function(e) {
             e.preventDefault();
             const display = document.getElementById('console2');
-            display.innerHTML = "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital e Ionosférico...\n";
+            display.textContent = "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital e Ionosférico...\n";
             try {
                 const fn = document.getElementById('nav_file').files[0];
                 window.MemoriaVolatil.navFileName = fn.name;
                 window.MemoriaVolatil.navParsed = parseRinexNavReal(await fn.text());
-                display.innerHTML += `> [ÉXITO] Archivo de efemérides almacenado en memoria volátil pura: ${fn.name}\n\n[SUCCESS]`;
+                display.textContent += `> [ÉXITO] Archivo de efemérides almacenado en memoria volátil pura: ${fn.name}\n\n[SUCCESS]`;
                 document.getElementById('btn-tab3').classList.remove('disabled-tab');
                 document.getElementById('btn-tab4').classList.remove('disabled-tab');
                 document.getElementById('btn-pdf-tab2').classList.remove('hidden');
                 display.scrollTop = display.scrollHeight;
-            } catch (err) { display.innerHTML += `\n> [ERROR] ${err.message}`; }
+            } catch (err) { display.textContent += `\n> [ERROR] ${err.message}`; }
         };
 
         window.procesarTab3JS = async function(e) {
             e.preventDefault();
             const display = document.getElementById('console3');
             document.getElementById('btn-pdf-tab3').classList.add('hidden');
-            display.innerHTML = "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n";
+            display.textContent = "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n";
             
             try {
                 let u_n = parseFloat(document.getElementById('t3_utm_n').value), u_e = parseFloat(document.getElementById('t3_utm_e').value), u_c = parseFloat(document.getElementById('t3_utm_c').value);
@@ -756,7 +756,7 @@
                 let u_n_r = parseFloat(document.getElementById('t3_utm_n_r').value), u_e_r = parseFloat(document.getElementById('t3_utm_e_r').value), u_c_r = parseFloat(document.getElementById('t3_utm_c_r').value);
                 
                 let obs_b_sync = window.MemoriaVolatil.baseSinc, obs_r_raw = window.MemoriaVolatil.roverRaw, nav = window.MemoriaVolatil.navParsed;
-                display.innerHTML += "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n";
+                display.textContent += "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n";
                 let sd_suavizada = aislarDiferenciasSimplesPPK(obs_b_sync, obs_r_raw);
                 let t_sample = Object.keys(sd_suavizada).map(Number);
                 
@@ -764,7 +764,7 @@
                 let [X_b, Y_b, Z_b] = geodesicas_a_ecef(lat_b, lon_b, u_c);
 
                 // FASE 1
-                display.innerHTML += "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n";
+                display.textContent += "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n";
                 await new Promise(r => setTimeout(r, 10)); // Allow UI paint
                 
                 let coords_raw = [];
@@ -783,15 +783,15 @@
                 let idx_optimo = Math.max(1, Math.floor(deltas_h.length / 10));
                 let best_eh = Math.max(0.01, deltas_h[idx_optimo]), best_ev = Math.max(0.01, deltas_v[idx_optimo]);
                 
-                display.innerHTML += `  [*] Límite Horizontal Inyectado: ${best_eh.toFixed(14)} m\n  [*] Límite Vertical Inyectado: ${best_ev.toFixed(14)} m\n\n`;
-                display.innerHTML += "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n";
+                display.textContent += `  [*] Límite Horizontal Inyectado: ${best_eh.toFixed(14)} m\n  [*] Límite Vertical Inyectado: ${best_ev.toFixed(14)} m\n\n`;
+                display.textContent += "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n";
                 
                 // FASE 2: GRID ZOOMING MONTE CARLO
                 let best_rmse = Infinity, best_params = {};
                 let m_center = 10.0, m_span = 5.0, cp_center = 2.0, cp_span = 1.5, ca_center = 2.0, ca_span = 1.5;
                 
                 for (let nivel = 0; nivel < 8; nivel++) {
-                    display.innerHTML += `  [+] Refinando espacio de búsqueda (Zoom ${nivel+1}/8)...\n`; display.scrollTop = display.scrollHeight;
+                    display.textContent += `  [+] Refinando espacio de búsqueda (Zoom ${nivel+1}/8)...\n`; display.scrollTop = display.scrollHeight;
                     await new Promise(r => setTimeout(r, 10));
                     
                     let m_grid = [...new Set([m_center - m_span, m_center, m_center + m_span].map(x => Math.max(5.0, Math.min(15.0, x))))];
@@ -844,30 +844,30 @@
                     document.getElementById('t3_err_h').value = best_params.eh; 
                     document.getElementById('t3_err_v').value = best_params.ev;
 
-                    display.innerHTML += `\n========================================================\n` +
-                                         `      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n` +
-                                         `========================================================\n` +
-                                         `  [-] Máscara Elevación (°): ${best_params.mask.toFixed(14)}\n` +
-                                         `  [-] Filtro Sigma Plan (cp): ${best_params.cp.toFixed(14)}\n` +
-                                         `  [-] Filtro Sigma Alt (ca): ${best_params.ca.toFixed(14)}\n` +
-                                         `  [-] Error Permitido Horizontal (m): ${best_params.eh.toFixed(14)}\n` +
-                                         `  [-] Error Permitido Vertical (m): ${best_params.ev.toFixed(14)}\n` +
-                                         `--------------------------------------------------------\n` +
-                                         `  [*] RMSE Global 3D al Punto: ${best_params.rmse.toFixed(4)} m\n` +
-                                         `  [*] Deltas Residuales -> N: ${best_params.dn.toFixed(3)}m, E: ${best_params.de.toFixed(3)}m, Z: ${best_params.dz.toFixed(3)}m\n` +
-                                         `  [*] Épocas Retenidas: ${best_params.ret}\n` +
-                                         `========================================================\n\n[SUCCESS]`;
+                    display.textContent += `\n========================================================\n` +
+                                           `      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n` +
+                                           `========================================================\n` +
+                                           `  [-] Máscara Elevación (°): ${best_params.mask.toFixed(14)}\n` +
+                                           `  [-] Filtro Sigma Plan (cp): ${best_params.cp.toFixed(14)}\n` +
+                                           `  [-] Filtro Sigma Alt (ca): ${best_params.ca.toFixed(14)}\n` +
+                                           `  [-] Error Permitido Horizontal (m): ${best_params.eh.toFixed(14)}\n` +
+                                           `  [-] Error Permitido Vertical (m): ${best_params.ev.toFixed(14)}\n` +
+                                           `--------------------------------------------------------\n` +
+                                           `  [*] RMSE Global 3D al Punto: ${best_params.rmse.toFixed(4)} m\n` +
+                                           `  [*] Deltas Residuales -> N: ${best_params.dn.toFixed(3)}m, E: ${best_params.de.toFixed(3)}m, Z: ${best_params.dz.toFixed(3)}m\n` +
+                                           `  [*] Épocas Retenidas: ${best_params.ret}\n` +
+                                           `========================================================\n\n[SUCCESS]`;
                     document.getElementById('btn-pdf-tab3').classList.remove('hidden');
-                } else { display.innerHTML += "\n> [ERROR] El modelo determinista no convergió.\n"; }
+                } else { display.textContent += "\n> [ERROR] El modelo determinista no convergió.\n"; }
                 display.scrollTop = display.scrollHeight;
-            } catch (err) { display.innerHTML += `\n> [ERROR FATAL] ${err.message}`; }
+            } catch (err) { display.textContent += `\n> [ERROR FATAL] ${err.message}`; }
         };
 
         window.procesarTab4JS = async function(e) {
             e.preventDefault();
             const display = document.getElementById('console4');
             document.getElementById('btn-pdf-tab4').classList.add('hidden');
-            display.innerHTML = "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n";
+            display.textContent = "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n";
             
             try {
                 const rf = document.getElementById('obs_rover_nuevo').files[0];
@@ -879,7 +879,7 @@
                 let p_mask = parseFloat(document.getElementById('t4_mask').value), p_cp = parseFloat(document.getElementById('t4_cp').value), p_ca = parseFloat(document.getElementById('t4_ca').value);
                 let e_h = parseFloat(document.getElementById('t4_err_h').value), e_v = parseFloat(document.getElementById('t4_err_v').value);
 
-                display.innerHTML += "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n";
+                display.textContent += "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n";
                 let base_sinc = {}, roverTows = Object.keys(obs_r_raw).map(Number).sort((a,b)=>a-b), baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
                 for (let tr of roverTows) {
                     if (baseTows.length === 0) continue;
@@ -887,7 +887,7 @@
                     if (Math.abs(baseTows[idx] - tr) <= 0.05) { base_sinc[tr] = window.MemoriaVolatil.baseRaw[baseTows[idx]]; base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']; }
                 }
                 
-                display.innerHTML += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
+                display.textContent += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
                 let sd_suavizada = aislarDiferenciasSimplesPPK(base_sinc, obs_r_raw);
                 if (Object.keys(sd_suavizada).length === 0) throw new Error("No hay épocas sincronizadas válidas.");
 
@@ -898,7 +898,7 @@
                 let coords = [], t_eps = Object.keys(sd_suavizada).length, c = 0;
                 for (let t of Object.keys(sd_suavizada).map(Number)) {
                     c++;
-                    if (c % Math.max(1, Math.floor(t_eps / 10)) === 0) { display.innerHTML += `[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... ${Math.floor((c / t_eps) * 100)}%\n`; display.scrollTop = display.scrollHeight; await new Promise(r => setTimeout(r, 10)); }
+                    if (c % Math.max(1, Math.floor(t_eps / 10)) === 0) { display.textContent += `[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... ${Math.floor((c / t_eps) * 100)}%\n`; display.scrollTop = display.scrollHeight; await new Promise(r => setTimeout(r, 10)); }
                     let [sem, status] = calcularDDPPKLambdaEpoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, p_mask);
                     if (sem) { let [la, lo, al] = ecef_a_geodesicas(sem[0], sem[1], sem[2]); let [nt, et] = geodesicas_a_utm(la, lo, u_h); coords.push([nt, et, al, status]); }
                 }
@@ -911,61 +911,47 @@
                 let [nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio] = res;
                 let zf_adj = zf - h_r;
                 
-                display.innerHTML += `[PROGRESO] Ajuste DGPS Finalizado.\n\n` +
-                                     `========================================================================\n` +
-                                     `             INFORME DE PROCESAMIENTO GNSSJP PRO \n` +
-                                     `========================================================================\n\n` +
-                                     `[*] RESULTADO DE MEDICIÓN ABSOLUTA (FLOAT (DGPS))\n` +
-                                     `------------------------------------------------------------------------\n` +
-                                     `  [-] Tolerancia Horizontal  : ${e_h > 0 ? '± ' + e_h + ' m (Vinculante)' : 'Inactiva'}\n` +
-                                     `  [-] Tolerancia Vertical    : ${e_v > 0 ? '± ' + e_v + ' m (Vinculante)' : 'Inactiva'}\n` +
-                                     `  [-] Máscara Elevación      : ${p_mask.toFixed(14)}°\n` +
-                                     `  [-] Filtro Planimétrico    : ${p_cp.toFixed(14)} Sigma\n` +
-                                     `  [-] Filtro Altimétrico     : ${p_ca.toFixed(14)} Sigma\n` +
-                                     `  [-] Épocas Útiles Retenidas: ${ret} (${(ret/Math.max(1, coords.length)*100).toFixed(1)}% del total)\n` +
-                                     `  [-] Varianza Global Z      : ${std_z.toFixed(3)} m\n\n` +
-                                     `[1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS\n` +
-                                     `------------------------------------------------------------------------\n` +
-                                     `  [-] Archivo Control (Base) : ${window.MemoriaVolatil.baseFileName || 'base.obs'}\n` +
-                                     `  [-] Archivo Móvil (Rover)  : ${rf.name}\n` +
-                                     `  [-] Archivo Efemérides     : ${window.MemoriaVolatil.navFileName || 'auto_nav.nav'}\n\n` +
-                                     `[2] ESTRATEGIA MATEMÁTICA Y ESTADÍSTICA\n` +
-                                     `------------------------------------------------------------------------\n` +
-                                     `  [-] Motor Algorítmico      : Diferencias Dobles Pseudodistancia C1/C5\n` +
-                                     `  [-] Resolución Matriz      : Ajuste IRLS Mínimos Cuadrados\n` +
-                                     `  [-] Sincronización Épocas  : Emparejamiento Dinámico Estricto (< 0.05s)\n\n` +
-                                     `[3] CALIDAD GEOMÉTRICA (QA / QC)\n` +
-                                     `------------------------------------------------------------------------\n` +
-                                     `  [-] Error Horizontal (RMS) : ± ${Math.hypot(std_n, std_e).toFixed(3)} m\n` +
-                                     `  [-] Error Espacial (3D RMS): ± ${Math.sqrt(Math.pow(std_n,2)+Math.pow(std_e,2)+Math.pow(std_z,2)).toFixed(3)} m\n\n` +
-                                     `[4] RESULTADOS VECTORIALES FINALES\n` +
-                                     `------------------------------------------------------------------------\n` +
-                                     `  * COORDENADA DE CONTROL (BASE FIJA):\n` +
-                                     `      Norte : ${u_n.toFixed(3)} m\n` +
-                                     `      Este  : ${u_e.toFixed(3)} m\n` +
-                                     `      Cota  : ${u_c.toFixed(3)} m\n\n` +
-                                     `  * COORDENADA CALCULADA (AJUSTE IRLS DGPS FLOAT (DGPS)):\n` +
-                                     `      Norte : ${nf.toFixed(3)} m\n` +
-                                     `      Este  : ${ef.toFixed(3)} m\n` +
-                                     `      Cota  : ${zf_adj.toFixed(3)} m\n` +
-                                     `========================================================================\n\n[SUCCESS]`;
+                display.textContent += `[PROGRESO] Ajuste DGPS Finalizado.\n\n` +
+                                       `========================================================================\n` +
+                                       `             INFORME DE PROCESAMIENTO GNSSJP PRO \n` +
+                                       `========================================================================\n\n` +
+                                       `[*] RESULTADO DE MEDICIÓN ABSOLUTA (FLOAT (DGPS))\n` +
+                                       `------------------------------------------------------------------------\n` +
+                                       `  [-] Tolerancia Horizontal  : ${e_h > 0 ? '± ' + e_h + ' m (Vinculante)' : 'Inactiva'}\n` +
+                                       `  [-] Tolerancia Vertical    : ${e_v > 0 ? '± ' + e_v + ' m (Vinculante)' : 'Inactiva'}\n` +
+                                       `  [-] Máscara Elevación      : ${p_mask.toFixed(14)}°\n` +
+                                       `  [-] Filtro Planimétrico    : ${p_cp.toFixed(14)} Sigma\n` +
+                                       `  [-] Filtro Altimétrico     : ${p_ca.toFixed(14)} Sigma\n` +
+                                       `  [-] Épocas Útiles Retenidas: ${ret} (${(ret/Math.max(1, coords.length)*100).toFixed(1)}% del total)\n` +
+                                       `  [-] Varianza Global Z      : ${std_z.toFixed(3)} m\n\n` +
+                                       `[1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS\n` +
+                                       `------------------------------------------------------------------------\n` +
+                                       `  [-] Archivo Control (Base) : ${window.MemoriaVolatil.baseFileName || 'base.obs'}\n` +
+                                       `  [-] Archivo Móvil (Rover)  : ${rf.name}\n` +
+                                       `  [-] Archivo Efemérides     : ${window.MemoriaVolatil.navFileName || 'auto_nav.nav'}\n\n` +
+                                       `[2] ESTRATEGIA MATEMÁTICA Y ESTADÍSTICA\n` +
+                                       `------------------------------------------------------------------------\n` +
+                                       `  [-] Motor Algorítmico      : Diferencias Dobles Pseudodistancia C1/C5\n` +
+                                       `  [-] Resolución Matriz      : Ajuste IRLS Mínimos Cuadrados\n` +
+                                       `  [-] Sincronización Épocas  : Emparejamiento Dinámico Estricto (< 0.05s)\n\n` +
+                                       `[3] CALIDAD GEOMÉTRICA (QA / QC)\n` +
+                                       `------------------------------------------------------------------------\n` +
+                                       `  [-] Error Horizontal (RMS) : ± ${Math.hypot(std_n, std_e).toFixed(3)} m\n` +
+                                       `  [-] Error Espacial (3D RMS): ± ${Math.sqrt(Math.pow(std_n,2)+Math.pow(std_e,2)+Math.pow(std_z,2)).toFixed(3)} m\n\n` +
+                                       `[4] RESULTADOS VECTORIALES FINALES\n` +
+                                       `------------------------------------------------------------------------\n` +
+                                       `  * COORDENADA DE CONTROL (BASE FIJA):\n` +
+                                       `      Norte : ${u_n.toFixed(3)} m\n` +
+                                       `      Este  : ${u_e.toFixed(3)} m\n` +
+                                       `      Cota  : ${u_c.toFixed(3)} m\n\n` +
+                                       `  * COORDENADA CALCULADA (AJUSTE IRLS DGPS FLOAT (DGPS)):\n` +
+                                       `      Norte : ${nf.toFixed(3)} m\n` +
+                                       `      Este  : ${ef.toFixed(3)} m\n` +
+                                       `      Cota  : ${zf_adj.toFixed(3)} m\n` +
+                                       `========================================================================\n\n[SUCCESS]`;
                 document.getElementById('btn-pdf-tab4').classList.remove('hidden');
                 display.scrollTop = display.scrollHeight;
-            } catch (err) { display.innerHTML += `\n> [ERROR FATAL] ${err.message}`; }
-        };
-    </script>
-</body>
-</html>
-                                     `      Este  : ${u_e.toFixed(3)} m\n` +
-                                     `      Cota  : ${u_c.toFixed(3)} m\n\n` +
-                                     `  * COORDENADA CALCULADA (AJUSTE IRLS DGPS FLOAT (DGPS)):\n` +
-                                     `      Norte : ${calc_n.toFixed(3)} m\n` +
-                                     `      Este  : ${calc_e.toFixed(3)} m\n` +
-                                     `      Cota  : ${calc_z.toFixed(3)} m\n` +
-                                     `========================================================================\n\n[SUCCESS]`;
-                document.getElementById('btn-pdf-tab4').classList.remove('hidden');
-                display.scrollTop = display.scrollHeight;
-            } catch (err) { display.innerHTML += `\n> [ERROR FATAL] ${err.message}`; }
+            } catch (err) { display.textContent += `\n> [ERROR FATAL] ${err.message}`; }
         };
     </script>
 </body>
