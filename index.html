@@ -67,9 +67,9 @@
             <div id="console1" class="console p-4 mt-4 h-64 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab1" onclick="descargarTextoPDF('console1', 'Informe_Sincronizacion')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Épocas PDF</button>
         </section>
-
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual en RAM)</h2>
+            <p class="text-sm text-gray-400 mb-4">Sube el archivo de efemérides descompreso (.nav o .rnx).</p>
             <form id="form-tab2" onsubmit="procesarTab2JS(event)">
                 <div class="mb-4">
                     <label class="block text-sm mb-1 text-blue-400 font-bold">Archivo de Efemérides (.nav):</label>
@@ -173,7 +173,6 @@
             <button id="btn-pdf-tab4" onclick="descargarTextoPDF('console4', 'Informe_Geodesico_DGPS')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Resultados</button>
         </section>
     </div>
-
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
@@ -415,7 +414,6 @@
             if (!ephList || ephList.length === 0) return null;
             return ephList.reduce((prev, curr) => Math.abs(curr.Toe - t_target) < Math.abs(prev.Toe - t_target) ? curr : prev);
         }
-
         // =====================================================================
         // PARSER Y FUNCIONES DE DGPS
         // =====================================================================
@@ -754,7 +752,6 @@
                 fix_ratio
             ];
         }
-
         // =====================================================================
         // MANEJADORES DE PESTAÑAS (TRADUCCIÓN EXACTA Y SEGURA)
         // =====================================================================
@@ -778,6 +775,7 @@
                     if (baseTows.length === 0) continue;
                     let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
                     if (Math.abs(baseTows[idx] - tr) <= 0.05) { 
+                        // Clonación profunda estricta para evitar corrupción de memoria (Replicación de .copy() en Python)
                         base_sinc[tr] = JSON.parse(JSON.stringify(window.MemoriaVolatil.baseRaw[baseTows[idx]]));
                         base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta']; 
                     }
@@ -830,7 +828,7 @@
                 let obs_r_raw_crudo = window.MemoriaVolatil.roverRaw;
                 let nav = window.MemoriaVolatil.navParsed;
 
-                // REPLICA EXACTA DEL CUELLO DE BOTELLA DEL DISCO EN APP.PY
+                // REPLICA EXACTA DEL CUELLO DE BOTELLA DEL DISCO EN APP.PY (Corte a 3 decimales, eliminación de SNR)
                 let rover_sinc_crudo = {};
                 for (let tr in obs_b_sync_crudo) {
                     rover_sinc_crudo[tr] = obs_r_raw_crudo[tr];
@@ -872,6 +870,7 @@
                 let best_rmse = Infinity, best_params = {};
                 let m_center = 10.0, m_span = 5.0, cp_center = 2.0, cp_span = 1.5, ca_center = 2.0, ca_span = 1.5;
                 
+                // RESTAURADO A 8 NIVELES DE CONVERGENCIA (Replica idéntica de for nivel in range(8): de app.py)
                 for (let iteracion = 0; iteracion < 8; iteracion++) {
                     display.textContent += `  [+] Refinando espacio de búsqueda (Zoom ${iteracion+1}/8)...\n`; display.scrollTop = display.scrollHeight;
                     await new Promise(r => setTimeout(r, 5));
@@ -978,7 +977,7 @@
                 }
                 
                 display.textContent += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
-                // En Pestaña 4, se usan los CRUUDOS sin truncar, igual que app.py
+                // En Pestaña 4, se usan los RAW sin truncar y con SNR, igual que app.py
                 let sd_suavizada = aislarDiferenciasSimplesPPK(base_sinc, obs_r_raw);
                 if (Object.keys(sd_suavizada).length === 0) throw new Error("No hay épocas sincronizadas válidas entre la Base y este nuevo Rover.");
 
