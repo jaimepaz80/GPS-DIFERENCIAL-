@@ -76,7 +76,7 @@
                     <label class="block text-sm mb-1 text-blue-400 font-bold">Archivo de Efemérides (.nav):</label>
                     <input type="file" id="nav_file" name="nav_file" required accept=".nav,.rnx" class="w-full bg-gray-700 p-2 rounded border border-blue-500">
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Cargar Efemérides a Memoria Volátil</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Cargar y Parsear Efemérides</button>
             </form>
             <div id="console2" class="console p-4 mt-4 h-48 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
@@ -84,9 +84,7 @@
 
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
-            <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
             <form id="form-tab3" onsubmit="procesarTab3JS(event)">
-                
                 <div class="grid grid-cols-3 gap-4 mb-4">
                     <div class="col-span-3"><h3 class="text-purple-400 font-bold text-sm">COORDENADAS ABSOLUTAS BASE (ESTACIÓN FIJA)</h3></div>
                     <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" id="t3_utm_n" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
@@ -130,7 +128,6 @@
         <section id="tab4" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Ajuste de Red DGPS Diferencial (Cálculo Rover Desconocido)</h2>
             <form id="form-tab4" onsubmit="procesarTab4JS(event)">
-                
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <h3 class="text-blue-400 font-bold text-sm mb-2">NUEVO ARCHIVO ROVER (PUNTO DESCONOCIDO)</h3>
@@ -179,9 +176,6 @@
     </div>
 
     <script type="module">
-        // ================================================================
-        // 1. FIREBASE AUTH
-        // ================================================================
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         
@@ -194,35 +188,21 @@
             appId: "1:558545141519:web:d21e7360d54db4d84d887a",
             measurementId: "G-3BQNVX74RS"
         };
-
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
-
-        const loginContainer = document.getElementById('login-container');
-        const appContainer = document.getElementById('app-container');
         
         onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loginContainer.style.display = 'none';
-                appContainer.style.display = 'block';
-            } else {
-                loginContainer.style.display = 'flex';
-                appContainer.style.display = 'none';
-            }
+            document.getElementById('login-container').style.display = user ? 'none' : 'flex';
+            document.getElementById('app-container').style.display = user ? 'block' : 'none';
         });
-
         document.getElementById('login-form').addEventListener('submit', (e) => {
             e.preventDefault();
             signInWithEmailAndPassword(auth, document.getElementById('email').value, document.getElementById('password').value)
                 .catch(() => { document.getElementById('login-error').classList.remove('hidden'); });
         });
-
         document.getElementById('btn-logout').addEventListener('click', () => signOut(auth));
 
-        // ================================================================
-        // 2. UTILIDADES DE INTERFAZ Y MEMORIA (REEMPLAZA A FLASK)
-        // ================================================================
-        window.MemoriaVolatil = { baseFileName: "", roverFileName: "", navFileName: "" };
+        window.MemoriaVolatil = { baseRaw: null, roverRaw: null, baseSinc: null, navParsed: null, baseFileName: "", roverFileName: "", navFileName: "" };
 
         window.switchTab = function(num) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -238,29 +218,458 @@
             const display = document.getElementById(consoleId);
             if (!display) return;
             const { jsPDF } = window.jspdf;
-            
             let lineasCrudas = display.innerText.split('\n');
             let reporteLimpio = lineasCrudas.filter(l => !l.includes('[SUCCESS]') && !l.includes('[PROGRESO]') && l.trim() !== '')
                                             .map(l => l.startsWith('>') ? l.substring(1).trim() : l);
-
             if (reporteLimpio.length === 0) return alert("No hay datos válidos.");
-
             const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
-            doc.setFont("courier", "normal");
-            doc.setFontSize(10);
-            
+            doc.setFont("courier", "normal"); doc.setFontSize(10);
             let pos_y = 50; 
             for(let i=0; i < reporteLimpio.length; i++) {
                 if (pos_y > 750) { doc.addPage(); pos_y = 50; }
-                doc.text(reporteLimpio[i], 40, pos_y);
-                pos_y += 14; 
+                doc.text(reporteLimpio[i], 40, pos_y); pos_y += 14; 
             }
             doc.save(nombreBase + '_' + new Date().getTime() + '.pdf');
         };
 
-        // ================================================================
-        // 3. MOTORES DE PROCESAMIENTO (REPLICACIÓN DE APP.PY EN JS)
-        // ================================================================
+        // =====================================================================
+        // TRADUCCIÓN DEL MODELO MATEMÁTICO (WGS84, UTM, IRLS)
+        // =====================================================================
+        const C_LIGHT = 299792458.0;
+        const OMEGA_E = 7.2921151467e-5;
+        const MU = 3.986005e14;
+
+        function gpsTimeToTow(year, month, day, hour, minute, second) {
+            let sec_int = Math.floor(second), sec_frac = second - sec_int;
+            let dateTarget = Date.UTC(year, month - 1, day, hour, minute, sec_int);
+            let dateGps = Date.UTC(1980, 0, 6, 0, 0, 0);
+            let total = (dateTarget - dateGps) / 1000 + sec_frac;
+            return total - (Math.floor(total / 604800) * 604800);
+        }
+
+        function transposeMatrix(M) {
+            if (!M || !M[0]) return [];
+            return M[0].map((_, i) => M.map(row => row[i]));
+        }
+
+        function matmul(A, B) {
+            if (!A || !B || !A[0] || !B[0]) return [];
+            let result = Array(A.length).fill().map(() => Array(B[0].length).fill(0.0));
+            for (let i = 0; i < A.length; i++) {
+                for (let j = 0; j < B[0].length; j++) {
+                    for (let k = 0; k < B.length; k++) {
+                        result[i][j] += A[i][k] * B[k][j];
+                    }
+                }
+            }
+            return result;
+        }
+
+        function invertMatrixNxN(M) {
+            if (!M || !M[0]) return null;
+            let n = M.length;
+            let A = M.map(row => [...row]);
+            let I = Array(n).fill().map((_, i) => Array(n).fill().map((_, j) => i === j ? 1.0 : 0.0));
+            
+            for (let i = 0; i < n; i++) {
+                let max_k = i;
+                for (let k = i + 1; k < n; k++) if (Math.abs(A[k][i]) > Math.abs(A[max_k][i])) max_k = k;
+                if (max_k !== i) {
+                    let temp = A[i]; A[i] = A[max_k]; A[max_k] = temp;
+                    temp = I[i]; I[i] = I[max_k]; I[max_k] = temp;
+                }
+                let pivot = A[i][i];
+                if (Math.abs(pivot) < 1e-15) return null; 
+                for (let j = 0; j < n; j++) { A[i][j] /= pivot; I[i][j] /= pivot; }
+                for (let k = 0; k < n; k++) {
+                    if (k === i) continue;
+                    let factor = A[k][i];
+                    for (let j = 0; j < n; j++) { A[k][j] -= factor * A[i][j]; I[k][j] -= factor * I[i][j]; }
+                }
+            }
+            return I;
+        }
+
+        function calcularSaastamoinen(lat_deg, alt, elev_deg) {
+            if (elev_deg < 5.0) elev_deg = 5.0;
+            let lat_rad = Math.max(lat_deg * Math.PI / 180.0, -Math.PI/2), elev_rad = elev_deg * Math.PI / 180.0;
+            let H = Math.max(0.0, Math.min(alt, 40000.0));
+            let P = 1013.25 * Math.pow((1.0 - 2.2557e-5 * H), 5.2568);
+            let T = 288.15 - 0.0065 * H;
+            let e = 6.11 * 0.5 * Math.pow(10.0, (7.5 * (T - 273.15) / (T - 273.15 + 237.3))) * Math.pow((1.0 - 2.2557e-5 * H), 5.2568);
+            let zhd = (0.0022768 * P) / (1.0 - 0.00266 * Math.cos(2.0 * lat_rad) - 0.00028 * (H / 1000.0));
+            let zwd = 0.0022768 * ((1255.0 / T) + 0.05) * e;
+            return (zhd + zwd) * (1.0 / Math.sin(elev_rad));
+        }
+
+        function calcularKlobuchar(lat_deg, lon_deg, el_deg, az_deg, tow, alpha, beta) {
+            if (alpha.every(v => v === 0) && beta.every(v => v === 0)) return 0.0;
+            let phi_u = lat_deg / 180.0, lam_u = lon_deg / 180.0;
+            let E = el_deg / 180.0, A = az_deg / 180.0;
+            let psi = 0.0137 / (E + 0.11) - 0.022;
+            let phi_i = phi_u + psi * Math.cos(A * Math.PI);
+            if (phi_i > 0.416) phi_i = 0.416; else if (phi_i < -0.416) phi_i = -0.416;
+            let lam_i = lam_u + (psi * Math.sin(A * Math.PI)) / Math.cos(phi_i * Math.PI);
+            let phi_m = phi_i + 0.064 * Math.cos((lam_i - 1.617) * Math.PI);
+            let t = 43200.0 * lam_i + tow;
+            t = t % 86400.0; if (t < 0) t += 86400.0;
+            let F = 1.0 + 16.0 * Math.pow((0.53 - E), 3);
+            let PER = beta[0] + beta[1]*phi_m + beta[2]*Math.pow(phi_m, 2) + beta[3]*Math.pow(phi_m, 3);
+            if (PER < 72000.0) PER = 72000.0;
+            let AMP = alpha[0] + alpha[1]*phi_m + alpha[2]*Math.pow(phi_m, 2) + alpha[3]*Math.pow(phi_m, 3);
+            if (AMP < 0.0) AMP = 0.0;
+            let x = (2.0 * Math.PI * (t - 50400.0)) / PER;
+            if (Math.abs(x) < 1.5707963267948966) return F * (5e-9 + AMP * (1.0 - Math.pow(x,2)/2.0 + Math.pow(x,4)/24.0)) * C_LIGHT;
+            return F * 5e-9 * C_LIGHT;
+        }
+
+        function ecef_a_geodesicas(x, y, z) {
+            let a = 6378137.0, e2 = 0.0066943799901413155;
+            let b = Math.sqrt(Math.pow(a, 2) * (1 - e2)), ep2 = (Math.pow(a, 2) - Math.pow(b, 2)) / Math.pow(b, 2);
+            let p = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2)), th = Math.atan2(a * z, b * p);
+            let lat = Math.atan2((z + ep2 * b * Math.pow(Math.sin(th), 3)), (p - e2 * a * Math.pow(Math.cos(th), 3)));
+            let N = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(lat), 2));
+            return [lat * 180.0 / Math.PI, Math.atan2(y, x) * 180.0 / Math.PI, p / Math.cos(lat) - N];
+        }
+
+        function geodesicas_a_ecef(lat_deg, lon_deg, alt) {
+            let a = 6378137.0, e2 = 0.0066943799901413155;
+            let lat = lat_deg * Math.PI / 180.0, lon = lon_deg * Math.PI / 180.0;
+            let N = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(lat), 2));
+            return [(N + alt) * Math.cos(lat) * Math.cos(lon), (N + alt) * Math.cos(lat) * Math.sin(lon), (N * (1 - e2) + alt) * Math.sin(lat)];
+        }
+
+        function geodesicas_a_utm(lat, lon, force_zone=19) {
+            let a = 6378137.0, e2 = 0.0066943799901413155;
+            let lat_r = lat * Math.PI / 180.0, lon_r = lon * Math.PI / 180.0;
+            let LongOrig = ((force_zone - 1) * 6 - 180 + 3) * Math.PI / 180.0;
+            let ep2 = e2 / (1 - e2);
+            let N = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(lat_r), 2));
+            let T = Math.pow(Math.tan(lat_r), 2), C = ep2 * Math.pow(Math.cos(lat_r), 2), A = Math.cos(lat_r) * (lon_r - LongOrig);
+            let M = a * ((1 - e2/4 - 3*Math.pow(e2,2)/64 - 5*Math.pow(e2,3)/256)*lat_r - (3*e2/8 + 3*Math.pow(e2,2)/32 + 45*Math.pow(e2,3)/1024)*Math.sin(2*lat_r) + (15*Math.pow(e2,2)/256 + 45*Math.pow(e2,3)/1024)*Math.sin(4*lat_r) - (35*Math.pow(e2,3)/3072)*Math.sin(6*lat_r));
+            let Easting = 0.9996 * N * (A + (1-T+C)*Math.pow(A,3)/6 + (5-18*T+Math.pow(T,2)+72*C-58*ep2)*Math.pow(A,5)/120) + 500000.0;
+            let Northing = 0.9996 * (M + N*Math.tan(lat_r)*(Math.pow(A,2)/2 + (5-T+9*C+4*Math.pow(C,2))*Math.pow(A,4)/24 + (61-58*T+Math.pow(T,2)+600*C-330*ep2)*Math.pow(A,6)/720));
+            return [lat < 0 ? Northing + 10000000.0 : Northing, Easting];
+        }
+
+        function utm_a_geodesicas(easting, northing, zone=19, hemisferio='N') {
+            let a = 6378137.0, e2 = 0.0066943799901413155;
+            let e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
+            let x = easting - 500000.0, y = hemisferio.toUpperCase() === 'N' ? northing : northing - 10000000.0;
+            let m = y / 0.9996, mu = m / (a * (1 - e2/4 - 3*Math.pow(e2,2)/64 - 5*Math.pow(e2,3)/256));
+            let phi1_rad = mu + (3*e1/2 - 27*Math.pow(e1,3)/32)*Math.sin(2*mu) + (21*Math.pow(e1,2)/16 - 55*Math.pow(e1,4)/32)*Math.sin(4*mu);
+            let n1 = a / Math.sqrt(1 - e2*Math.pow(Math.sin(phi1_rad), 2));
+            let t1 = Math.pow(Math.tan(phi1_rad), 2), c1 = (e2 / (1 - e2)) * Math.pow(Math.cos(phi1_rad), 2);
+            let r1 = a * (1 - e2) / Math.pow(1 - e2*Math.pow(Math.sin(phi1_rad), 2), 1.5);
+            let d = x / (n1 * 0.9996);
+            let lat_rad = phi1_rad - (n1*Math.tan(phi1_rad)/r1) * (Math.pow(d,2)/2 - (5 + 3*t1 + 10*c1)*Math.pow(d,4)/24);
+            let lon_rad = (d - (1 + 2*t1 + c1)*Math.pow(d,3)/6) / Math.cos(phi1_rad);
+            let lon_origen = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180.0;
+            return [lat_rad * 180.0 / Math.PI, (lon_rad + lon_origen) * 180.0 / Math.PI, 0.0];
+        }
+
+        function calcularTopocentricas(xs, ys, zs, X_usr, Y_usr, Z_usr) {
+            let [lat_val, lon_val, alt_val] = ecef_a_geodesicas(X_usr, Y_usr, Z_usr);
+            let lat_r = lat_val * Math.PI / 180.0, lon_r = lon_val * Math.PI / 180.0;
+            let dx = xs - X_usr, dy = ys - Y_usr, dz = zs - Z_usr;
+            let sin_lat = Math.sin(lat_r), cos_lat = Math.cos(lat_r);
+            let sin_lon = Math.sin(lon_r), cos_lon = Math.cos(lon_r);
+            let e = -sin_lon * dx + cos_lon * dy;
+            let n = -sin_lat * cos_lon * dx - sin_lat * sin_lon * dy + cos_lat * dz;
+            let u = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz;
+            let dist = Math.sqrt(Math.pow(dx,2) + Math.pow(dy,2) + Math.pow(dz,2));
+            if (dist < 1e-6) return [0.0, 0.0];
+            let val_asin = Math.max(-1.0, Math.min(1.0, u / dist));
+            let el = Math.asin(val_asin) * 180.0 / Math.PI;
+            let az = Math.atan2(e, n) * 180.0 / Math.PI;
+            if (az < 0) az += 360.0;
+            return [el, az];
+        }
+
+        function calcularPosicionSateliteWGS84(eph, t_emision, tau_vuelo, sys_char) {
+            if (!eph || eph.sqrtA <= 0.0) return null;
+            let mu_sys = (sys_char === 'E' || sys_char === 'C') ? 3.986004418e14 : MU;
+            let omega_e_sys = (sys_char === 'C') ? 7.292115e-5 : OMEGA_E;
+            let A = Math.pow(eph.sqrtA, 2);
+            let n0 = Math.sqrt(mu_sys / Math.pow(A, 3));
+            let t_k = t_emision - eph.Toe;
+            if (sys_char === 'C') t_k -= 14.0;
+            if (t_k > 302400) t_k -= 604800; else if (t_k < -302400) t_k += 604800;
+            let M_k = eph.M0 + (n0 + eph.Delta_n) * t_k, E_k = M_k;
+            for (let i = 0; i < 5; i++) E_k = M_k + eph.e * Math.sin(E_k);
+            let dt_sat = eph.af0 + eph.af1 * t_k + eph.af2 * Math.pow(t_k, 2);
+            let nu_k = Math.atan2((Math.sqrt(1 - Math.pow(eph.e, 2)) * Math.sin(E_k)), (Math.cos(E_k) - eph.e));
+            let phi_k = nu_k + eph.omega;
+            let u_k = phi_k + eph.Cus * Math.sin(2 * phi_k) + eph.Cuc * Math.cos(2 * phi_k);
+            let r_k = A * (1 - eph.e * Math.cos(E_k)) + eph.Crs * Math.sin(2 * phi_k) + eph.Crc * Math.cos(2 * phi_k);
+            let i_k = eph.i0 + eph.Cic * Math.cos(2 * phi_k) + eph.Cis * Math.sin(2 * phi_k) + eph.IDOT * t_k;
+            let x_k = r_k * Math.cos(u_k), y_k = r_k * Math.sin(u_k);
+            let omega_k = eph.OMEGA + (eph.OMEGA_DOT - omega_e_sys) * t_k - omega_e_sys * eph.Toe;
+            let xs = x_k * Math.cos(omega_k) - y_k * Math.cos(i_k) * Math.sin(omega_k);
+            let ys = x_k * Math.sin(omega_k) + y_k * Math.cos(i_k) * Math.cos(omega_k);
+            let zs = y_k * Math.sin(i_k);
+            let theta = omega_e_sys * tau_vuelo;
+            return [xs * Math.cos(theta) + ys * Math.sin(theta), -xs * Math.sin(theta) + ys * Math.cos(theta), zs, dt_sat];
+        }
+
+        // =====================================================================
+        // PARSER Y FUNCIONES DE DGPS
+        // =====================================================================
+        function parseRinexObsCompleto(text) {
+            const lines = text.split(/\r?\n/);
+            let obs = {}, sys_idx = {}, in_h = true, tow = null;
+            for (let line of lines) {
+                if (in_h) {
+                    if (line.includes("SYS / # / OBS TYPES")) {
+                        let sys_char = line[0], tokens = line.substring(6, 60).trim().split(/\s+/);
+                        sys_idx[sys_char] = {
+                            'C1': tokens.findIndex(x => x.startsWith('C1')),
+                            'L1': tokens.findIndex(x => x.startsWith('L1')),
+                            'C5': tokens.findIndex(x => x.startsWith('C5')),
+                            'L5': tokens.findIndex(x => x.startsWith('L5')),
+                            'S1': tokens.findIndex(x => x.startsWith('S1')),
+                            'S5': tokens.findIndex(x => x.startsWith('S5'))
+                        };
+                    } else if (line.includes("END OF HEADER")) in_h = false;
+                } else {
+                    if (line.startsWith('>')) {
+                        let p = line.substring(1).trim().split(/\s+/);
+                        if (p.length >= 6) {
+                            let y = parseInt(p[0]), m = parseInt(p[1]), d = parseInt(p[2]);
+                            let h = parseInt(p[3]), mn = parseInt(p[4]), sec = parseFloat(p[5]);
+                            if (y < 100) y += 2000;
+                            tow = parseFloat(gpsTimeToTow(y, m, d, h, mn, sec).toFixed(6));
+                            obs[tow] = { '_meta': [y, m, d, h, mn, sec] };
+                        }
+                    } else if (tow && line.length > 3 && "GRECSJ".includes(line[0])) {
+                        let sys_char = line[0], idxs = sys_idx[sys_char] || {}, data = {};
+                        const extVal = (idx) => {
+                            if (idx >= 0) {
+                                let start = 3 + 16 * idx, end = 17 + 16 * idx;
+                                if (line.length >= end) {
+                                    let v = line.substring(start, end).trim();
+                                    if (v) return parseFloat(v.replace(/D/ig, 'E'));
+                                }
+                            } return null;
+                        };
+                        let c1 = extVal(idxs.C1); if (c1 !== null) data['C1'] = c1;
+                        let l1 = extVal(idxs.L1); if (l1 !== null) data['L1'] = l1;
+                        let c5 = extVal(idxs.C5); if (c5 !== null) data['C5'] = c5;
+                        let l5 = extVal(idxs.L5); if (l5 !== null) data['L5'] = l5;
+                        let s1 = extVal(idxs.S1); if (s1 !== null) data['S1'] = s1;
+                        let s5 = extVal(idxs.S5); if (s5 !== null) data['S5'] = s5;
+                        
+                        if ((data['C1'] && data['C1'] > 15000000.0) || (data['C5'] && data['C5'] > 15000000.0)) {
+                            obs[tow][line.substring(0, 3).trim()] = data;
+                        }
+                    }
+                }
+            }
+            return obs;
+        }
+
+        function parseRinexNavReal(text) {
+            const lines = text.split(/\r?\n/);
+            let ephemeris = {}, iono_params = {'GPSA': [0,0,0,0], 'GPSB': [0,0,0,0], 'BDSA': [0,0,0,0], 'BDSB': [0,0,0,0]};
+            let in_h = true, sat = null, data = [];
+            for (let line of lines) {
+                if (in_h) {
+                    if (line.includes("IONOSPHERIC CORR")) {
+                        let sys_type = line.substring(0, 4).trim(), vals = [];
+                        for (let i = 0; i < 4; i++) {
+                            let chunk = line.substring(5 + i * 12, 5 + (i + 1) * 12).trim().replace(/D/ig, 'E');
+                            vals.push(chunk ? parseFloat(chunk) : 0.0);
+                        }
+                        if (sys_type in iono_params) iono_params[sys_type] = vals;
+                    } else if (line.includes("END OF HEADER")) in_h = false;
+                    continue;
+                }
+                if (line.length > 8 && "GECSJ".includes(line[0]) && !isNaN(line.substring(1,3))) {
+                    if (sat && data.length >= 20) {
+                        if(!ephemeris[sat]) ephemeris[sat] = [];
+                        ephemeris[sat].push({'af0':data[0],'af1':data[1],'af2':data[2],'Crs':data[4],'Delta_n':data[5],'M0':data[6],'Cuc':data[7],'e':data[8],'Cus':data[9],'sqrtA':data[10],'Toe':data[11],'Cic':data[12],'OMEGA':data[13],'Cis':data[14],'i0':data[15],'Crc':data[16],'omega':data[17],'OMEGA_DOT':data[18],'IDOT':data[19]});
+                    }
+                    sat = line.substring(0,3).trim();
+                    data = [parseFloat(line.substring(23,42).replace(/D/ig,'E')), parseFloat(line.substring(42,61).replace(/D/ig,'E')), parseFloat(line.substring(61,80).replace(/D/ig,'E'))];
+                } else if (sat && line.startsWith('    ')) {
+                    for (let i = 4; i < 80; i += 19) {
+                        let chunk = line.substring(i, i + 19).trim();
+                        if (chunk) data.push(parseFloat(chunk.replace(/D/ig,'E')));
+                    }
+                }
+            }
+            if (sat && data.length >= 20) {
+                if(!ephemeris[sat]) ephemeris[sat] = [];
+                ephemeris[sat].push({'af0':data[0],'af1':data[1],'af2':data[2],'Crs':data[4],'Delta_n':data[5],'M0':data[6],'Cuc':data[7],'e':data[8],'Cus':data[9],'sqrtA':data[10],'Toe':data[11],'Cic':data[12],'OMEGA':data[13],'Cis':data[14],'i0':data[15],'Crc':data[16],'omega':data[17],'OMEGA_DOT':data[18],'IDOT':data[19]});
+            }
+            let alpha = iono_params['GPSA'].some(v=>v!==0) ? iono_params['GPSA'] : iono_params['BDSA'];
+            let beta = iono_params['GPSB'].some(v=>v!==0) ? iono_params['GPSB'] : iono_params['BDSB'];
+            ephemeris['_iono'] = {'alpha': alpha, 'beta': beta};
+            return ephemeris;
+        }
+
+        function aislarDiferenciasSimplesPPK(obs_b, obs_r) {
+            let sd_suavizada = {};
+            for (let towStr of Object.keys(obs_r).sort((a,b) => parseFloat(a) - parseFloat(b))) {
+                let tow = parseFloat(towStr);
+                if (!obs_b[tow]) continue;
+                let sd_epoca = {'_meta': obs_r[tow]['_meta']};
+                for (let s in obs_r[tow]) {
+                    if (s === '_meta' || !obs_b[tow][s]) continue;
+                    let d_b = obs_b[tow][s], d_r = obs_r[tow][s];
+                    let freq = 'L1';
+                    if (d_b['C5'] && d_r['C5'] && d_b['L5'] && d_r['L5']) freq = 'L5';
+                    else if (!(d_b['C1'] && d_r['C1'])) continue;
+                    
+                    let pr_b = freq === 'L5' ? d_b['C5'] : d_b['C1'];
+                    let pr_r = freq === 'L5' ? d_r['C5'] : d_r['C1'];
+                    let snr_b = freq === 'L5' ? (d_b['S5'] || 30.0) : (d_b['S1'] || 30.0);
+                    let snr_r = freq === 'L5' ? (d_r['S5'] || 30.0) : (d_r['S1'] || 30.0);
+                    
+                    sd_epoca[s] = { 'sd_P': pr_r - pr_b, 'pr_b': pr_b, 'pr_r': pr_r, 'snr': Math.min(snr_b, snr_r) };
+                }
+                if (Object.keys(sd_epoca).length > 1) sd_suavizada[tow] = sd_epoca;
+            }
+            return sd_suavizada;
+        }
+
+        function calcularDDPPKLambdaEpoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle) {
+            try {
+                let X_iter = X_b, Y_iter = Y_b, Z_iter = Z_b;
+                let [lat_b, lon_b, alt_b] = ecef_a_geodesicas(X_b, Y_b, Z_b);
+                let iono = nav['_iono'] || {'alpha': [0,0,0,0], 'beta': [0,0,0,0]};
+                let alpha = iono['alpha'], beta = iono['beta'];
+                
+                let sat_positions = {};
+                for (let s in sd_epoca) {
+                    if (s === '_meta' || sd_epoca[s]['sd_P'] === null) continue;
+                    let tau = sd_epoca[s]['pr_r'] / C_LIGHT;
+                    let ephList = nav[s];
+                    if (!ephList || ephList.length === 0) continue;
+                    let eph = ephList.reduce((prev, curr) => Math.abs(curr.Toe - (tr-tau)) < Math.abs(prev.Toe - (tr-tau)) ? curr : prev);
+                    
+                    let sp = calcularPosicionSateliteWGS84(eph, tr-tau, tau, s[0]);
+                    if (sp) {
+                        let [el_r, az_r] = calcularTopocentricas(sp[0], sp[1], sp[2], X_iter, Y_iter, Z_iter);
+                        if (el_r >= mask_angle) {
+                            sat_positions[s] = {'sp': sp, 'el': el_r, 'az': az_r, 'sd_P': sd_epoca[s]['sd_P'], 'snr': sd_epoca[s]['snr']};
+                        }
+                    }
+                }
+                
+                if (Object.keys(sat_positions).length < 4) return [null, "FAILED"];
+                
+                let sat_list_full = Object.keys(sat_positions);
+                let constellations = new Set(sat_list_full.map(s => s[0]));
+                let ref_sats = {}, sat_list = [];
+                
+                for (let c of constellations) {
+                    let c_sats = sat_list_full.filter(s => s[0] === c);
+                    if (c_sats.length >= 2) {
+                        let max_el = -1, ref = null;
+                        for (let s of c_sats) { if (sat_positions[s]['el'] > max_el) { max_el = sat_positions[s]['el']; ref = s; } }
+                        ref_sats[c] = ref;
+                        sat_list.push(...c_sats.filter(s => s !== ref));
+                    }
+                }
+                
+                if (sat_list.length < 3) return [null, "FAILED"];
+                
+                const calc_rho = (sp, X, Y, Z, lat, lon, alt, el, az) => {
+                    let dist = Math.sqrt(Math.pow(sp[0]-X,2) + Math.pow(sp[1]-Y,2) + Math.pow(sp[2]-Z,2));
+                    let tropo = calcularSaastamoinen(lat, alt, el);
+                    let iono_m = calcularKlobuchar(lat, lon, el, az, tr, alpha, beta);
+                    return [dist + tropo, iono_m, dist];
+                };
+
+                let prev_residuals = Array(sat_list.length).fill(0.0);
+
+                for (let iteracion = 0; iteracion < 8; iteracion++) {
+                    let [lat_it, lon_it, alt_it] = ecef_a_geodesicas(X_iter, Y_iter, Z_iter);
+                    let H = [], L = [], W_diag = [];
+                    
+                    let ref_calcs = {};
+                    for (let c in ref_sats) {
+                        let r_sat = ref_sats[c], r_data = sat_positions[r_sat];
+                        let [rho_r, iono_r, dist_r] = calc_rho(r_data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, r_data['el'], r_data['az']);
+                        let [el_b, az_b] = calcularTopocentricas(r_data['sp'][0], r_data['sp'][1], r_data['sp'][2], X_b, Y_b, Z_b);
+                        let [rho_b, iono_b, _] = calc_rho(r_data['sp'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_b, az_b);
+                        ref_calcs[c] = { 'dist_ref_r': dist_r, 'SD_P_calc_ref': (rho_r + iono_r) - (rho_b + iono_b), 'sp': r_data['sp'], 'el': r_data['el'], 'snr': r_data['snr'], 'sd_P': r_data['sd_P'] };
+                    }
+                    
+                    for (let i = 0; i < sat_list.length; i++) {
+                        let s = sat_list[i], c = s[0], data = sat_positions[s], rc = ref_calcs[c];
+                        let [rho_r, iono_r, dist_r] = calc_rho(data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, data['el'], data['az']);
+                        let [el_b, az_b] = calcularTopocentricas(data['sp'][0], data['sp'][1], data['sp'][2], X_b, Y_b, Z_b);
+                        let [rho_b, iono_b, _] = calc_rho(data['sp'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_b, az_b);
+                        
+                        let SD_P_calc_i = (rho_r + iono_r) - (rho_b + iono_b);
+                        let DD_P_calc = SD_P_calc_i - rc['SD_P_calc_ref'];
+                        
+                        let dx_geom = [
+                            -(data['sp'][0] - X_iter) / dist_r - (-(rc['sp'][0] - X_iter) / rc['dist_ref_r']),
+                            -(data['sp'][1] - Y_iter) / dist_r - (-(rc['sp'][1] - Y_iter) / rc['dist_ref_r']),
+                            -(data['sp'][2] - Z_iter) / dist_r - (-(rc['sp'][2] - Z_iter) / rc['dist_ref_r'])
+                        ];
+                        
+                        let sin_el_i = Math.pow(Math.sin(data['el'] * Math.PI/180), 2);
+                        let sin_el_r = Math.pow(Math.sin(rc['el'] * Math.PI/180), 2);
+                        let snr_i = Math.pow(10.0, data['snr'] / 10.0);
+                        let snr_r = Math.pow(10.0, rc['snr'] / 10.0);
+                        let w_i_ref = (sin_el_i * snr_i * sin_el_r * snr_r) / Math.max(1.0, (sin_el_i * snr_i) + (sin_el_r * snr_r));
+                        
+                        L.push([data['sd_P'] - rc['sd_P'] - DD_P_calc]);
+                        H.push(dx_geom);
+                        W_diag.push(iteracion === 0 ? w_i_ref : w_i_ref / Math.max(1.0, Math.abs(prev_residuals[i]) / 2.0));
+                    }
+                    
+                    let H_T = transposeMatrix(H);
+                    let H_T_W = H_T.map(row => row.map((val, idx) => val * W_diag[idx]));
+                    let N_mat = matmul(H_T_W, H);
+                    for (let r = 0; r < N_mat.length; r++) N_mat[r][r] += Math.abs(N_mat[r][r]) * 1e-6 + 1e-6;
+                    let U_vec = matmul(H_T_W, L);
+                    let Q = invertMatrixNxN(N_mat);
+                    if (!Q) return [null, "FAILED"];
+                    let Delta_X = matmul(Q, U_vec);
+                    
+                    X_iter += Delta_X[0][0]; Y_iter += Delta_X[1][0]; Z_iter += Delta_X[2][0];
+                    
+                    prev_residuals = [];
+                    for (let r = 0; r < H.length; r++) {
+                        let v_val = (H[r][0]*Delta_X[0][0] + H[r][1]*Delta_X[1][0] + H[r][2]*Delta_X[2][0]) - L[r][0];
+                        prev_residuals.push(v_val);
+                    }
+                    if (Math.max(Math.abs(Delta_X[0][0]), Math.abs(Delta_X[1][0]), Math.abs(Delta_X[2][0])) < 1e-3) return [[X_iter, Y_iter, Z_iter], "FLOAT"];
+                }
+                return [[X_iter, Y_iter, Z_iter], "FLOAT"];
+            } catch(e) { return [null, "FAILED_EXCEPTION"]; }
+        }
+
+        function estadisticaDesacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max) {
+            if (!coordenadas || coordenadas.length === 0) return [null];
+            let getMedian = (lst) => { let s = [...lst].sort((a,b)=>a-b), n = s.length; return n%2 ? s[Math.floor(n/2)] : (s[n/2-1]+s[n/2])/2.0; };
+            let med_N = getMedian(coordenadas.map(c=>c[0])), med_E = getMedian(coordenadas.map(c=>c[1])), med_Z = getMedian(coordenadas.map(c=>c[2]));
+            
+            let valid_coords = coordenadas.filter(c => {
+                let dh = Math.hypot(c[0]-med_N, c[1]-med_E), dv = Math.abs(c[2]-med_Z);
+                if ((err_hor_max > 0.0 && dh > err_hor_max) || (err_ver_max > 0.0 && dv > err_ver_max)) return false;
+                return true;
+            });
+            if (valid_coords.length === 0) return [null];
+            
+            let calcMeanStd = (arr) => { let m = arr.reduce((a,b)=>a+b)/arr.length; return [m, arr.length>1 ? Math.sqrt(arr.reduce((a,b)=>a+Math.pow(b-m,2),0)/arr.length) : 0.0]; };
+            let [N_m, N_s] = calcMeanStd(valid_coords.map(c=>c[0])), [E_m, E_s] = calcMeanStd(valid_coords.map(c=>c[1])), [Z_m, Z_s] = calcMeanStd(valid_coords.map(c=>c[2]));
+            
+            let N_f = valid_coords.map(c=>c[0]).filter(x => N_s === 0 || Math.abs(x-N_m) <= conf_plani*N_s);
+            let E_f = valid_coords.map(c=>c[1]).filter(x => E_s === 0 || Math.abs(x-E_m) <= conf_plani*E_s);
+            let Z_f = valid_coords.map(c=>c[2]).filter(x => Z_s === 0 || Math.abs(x-Z_m) <= conf_alti*Z_s);
+            
+            return [N_f.reduce((a,b)=>a+b)/Math.max(1,N_f.length), E_f.reduce((a,b)=>a+b)/Math.max(1,E_f.length), Z_f.reduce((a,b)=>a+b)/Math.max(1,Z_f.length), N_s, E_s, Z_s, Math.min(N_f.length, E_f.length, Z_f.length), 0];
+        }
+
+        // =====================================================================
+        // MANEJADORES DE PESTAÑAS (TRADUCCIÓN EXACTA)
+        // =====================================================================
         window.procesarTab1JS = async function(e) {
             e.preventDefault();
             const display = document.getElementById('console1');
@@ -270,6 +679,15 @@
                 const fr = document.getElementById('obs_rover').files[0];
                 window.MemoriaVolatil.baseFileName = fb.name;
                 window.MemoriaVolatil.roverFileName = fr.name;
+                window.MemoriaVolatil.baseRaw = parseRinexObsCompleto(await fb.text());
+                window.MemoriaVolatil.roverRaw = parseRinexObsCompleto(await fr.text());
+                
+                let base_sinc = {}, roverTows = Object.keys(window.MemoriaVolatil.roverRaw).map(Number).sort((a,b)=>a-b), baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
+                for (let tr of roverTows) {
+                    let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
+                    if (Math.abs(baseTows[idx] - tr) <= 0.05) { base_sinc[tr] = window.MemoriaVolatil.baseRaw[baseTows[idx]]; base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta']; }
+                }
+                window.MemoriaVolatil.baseSinc = base_sinc;
                 
                 display.innerHTML += `[PROGRESO] Cotejando épocas sin distorsión... 100%\n`;
                 display.innerHTML += `\n========================================================================\n` +
@@ -278,7 +696,7 @@
                                      `[1] PARÁMETROS DE CONTROL (BASE) : ${fb.name}\n` +
                                      `[2] PARÁMETROS DEL MÓVIL (ROVER) : ${fr.name}\n` +
                                      `[3] MATRIZ RESULTANTE (ESTRICTA, SIN INTERPOLACIÓN)\n` +
-                                     `  [-] Tasa de Éxito sobre Rover  : 100.0%\n` +
+                                     `  [-] Tasa de Éxito sobre Rover  : ${((Object.keys(base_sinc).length / roverTows.length)*100).toFixed(1)}%\n` +
                                      `========================================================================\n\n[SUCCESS]`;
                 document.getElementById('btn-tab2').classList.remove('disabled-tab');
                 document.getElementById('btn-pdf-tab1').classList.remove('hidden');
@@ -293,8 +711,8 @@
             try {
                 const fn = document.getElementById('nav_file').files[0];
                 window.MemoriaVolatil.navFileName = fn.name;
-                
-                display.innerHTML += `> [ÉXITO] Archivo de efemérides almacenado en: ${fn.name}\n\n[SUCCESS]`;
+                window.MemoriaVolatil.navParsed = parseRinexNavReal(await fn.text());
+                display.innerHTML += `> [ÉXITO] Archivo de efemérides almacenado en memoria volátil pura: ${fn.name}\n\n[SUCCESS]`;
                 document.getElementById('btn-tab3').classList.remove('disabled-tab');
                 document.getElementById('btn-tab4').classList.remove('disabled-tab');
                 document.getElementById('btn-pdf-tab2').classList.remove('hidden');
@@ -309,55 +727,102 @@
             display.innerHTML = "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n";
             
             try {
-                let u_n = parseFloat(document.getElementById('t3_utm_n').value);
-                let u_e = parseFloat(document.getElementById('t3_utm_e').value);
-                let u_c = parseFloat(document.getElementById('t3_utm_c').value);
-                let u_h = document.getElementById('t3_utm_h').value;
-                let u_hem = document.getElementById('t3_utm_hem').value;
-                let c_mask = parseFloat(document.getElementById('t3_mask').value);
-                let c_cp = parseFloat(document.getElementById('t3_cp').value);
-                let c_ca = parseFloat(document.getElementById('t3_ca').value);
-                let e_h = parseFloat(document.getElementById('t3_err_h').value);
-                let e_v = parseFloat(document.getElementById('t3_err_v').value);
-
-                display.innerHTML += "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n";
-                await new Promise(r => setTimeout(r, 500)); // Simulador de retardo algebraico
-                display.innerHTML += "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n";
-                display.innerHTML += `  [*] Límite Horizontal Inyectado: ${e_h.toFixed(14)} m\n`;
-                display.innerHTML += `  [*] Límite Vertical Inyectado: ${e_v.toFixed(14)} m\n\n`;
+                let u_n = parseFloat(document.getElementById('t3_utm_n').value), u_e = parseFloat(document.getElementById('t3_utm_e').value), u_c = parseFloat(document.getElementById('t3_utm_c').value);
+                let u_h = parseInt(document.getElementById('t3_utm_h').value), u_hem = document.getElementById('t3_utm_hem').value;
+                let u_n_r = parseFloat(document.getElementById('t3_utm_n_r').value), u_e_r = parseFloat(document.getElementById('t3_utm_e_r').value), u_c_r = parseFloat(document.getElementById('t3_utm_c_r').value);
                 
-                for(let i=1; i<=8; i++) {
-                    display.innerHTML += `  [+] Refinando espacio de búsqueda (Zoom ${i}/8)...\n`;
-                    display.scrollTop = display.scrollHeight;
-                    await new Promise(r => setTimeout(r, 150));
+                let obs_b_sync = window.MemoriaVolatil.baseSinc, obs_r_raw = window.MemoriaVolatil.roverRaw, nav = window.MemoriaVolatil.navParsed;
+                display.innerHTML += "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n";
+                let sd_suavizada = aislarDiferenciasSimplesPPK(obs_b_sync, obs_r_raw);
+                let t_sample = Object.keys(sd_suavizada).map(Number);
+                
+                let [lat_b, lon_b, _] = utm_a_geodesicas(u_e, u_n, u_h, u_hem);
+                let [X_b, Y_b, Z_b] = geodesicas_a_ecef(lat_b, lon_b, u_c);
+
+                // FASE 1
+                display.innerHTML += "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n";
+                await new Promise(r => setTimeout(r, 10)); // Allow UI paint
+                
+                let coords_raw = [];
+                for (let t of t_sample) {
+                    let [sem, status] = calcularDDPPKLambdaEpoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0);
+                    if (sem) {
+                        let [la, lo, al] = ecef_a_geodesicas(sem[0], sem[1], sem[2]);
+                        let [nt, et] = geodesicas_a_utm(la, lo, u_h);
+                        coords_raw.push([nt, et, al]);
+                    }
+                }
+                if(coords_raw.length === 0) throw new Error("Nube de puntos bruta colapsada.");
+                
+                let deltas_h = coords_raw.map(c => Math.hypot(c[0]-u_n_r, c[1]-u_e_r)).sort((a,b)=>a-b);
+                let deltas_v = coords_raw.map(c => Math.abs(c[2]-u_c_r)).sort((a,b)=>a-b);
+                let idx_optimo = Math.max(1, Math.floor(deltas_h.length / 10));
+                let best_eh = Math.max(0.01, deltas_h[idx_optimo]), best_ev = Math.max(0.01, deltas_v[idx_optimo]);
+                
+                display.innerHTML += `  [*] Límite Horizontal Inyectado: ${best_eh.toFixed(14)} m\n  [*] Límite Vertical Inyectado: ${best_ev.toFixed(14)} m\n\n`;
+                display.innerHTML += "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n";
+                
+                // FASE 2: GRID ZOOMING MONTE CARLO
+                let best_rmse = Infinity, best_params = {};
+                let m_center = 10.0, m_span = 5.0, cp_center = 2.0, cp_span = 1.5, ca_center = 2.0, ca_span = 1.5;
+                
+                for (let nivel = 0; nivel < 8; nivel++) {
+                    display.innerHTML += `  [+] Refinando espacio de búsqueda (Zoom ${nivel+1}/8)...\n`; display.scrollTop = display.scrollHeight;
+                    await new Promise(r => setTimeout(r, 10));
+                    
+                    let m_grid = [...new Set([m_center - m_span, m_center, m_center + m_span].map(x => Math.max(5.0, Math.min(15.0, x))))];
+                    let cp_grid = [...new Set([cp_center - cp_span, cp_center, cp_center + cp_span].map(x => Math.max(0.1, Math.min(5.0, x))))];
+                    let ca_grid = [...new Set([ca_center - ca_span, ca_center, ca_center + ca_span].map(x => Math.max(0.1, Math.min(5.0, x))))];
+                    
+                    let nivel_best_rmse = Infinity, nivel_best_m = m_center, nivel_best_cp = cp_center, nivel_best_ca = ca_center;
+                    
+                    for (let m of m_grid) {
+                        let coords = [];
+                        for (let t of t_sample) {
+                            let [sem, status] = calcularDDPPKLambdaEpoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, m);
+                            if (sem) { let [la, lo, al] = ecef_a_geodesicas(sem[0], sem[1], sem[2]); let [nt, et] = geodesicas_a_utm(la, lo, u_h); coords.push([nt, et, al, status]); }
+                        }
+                        if (coords.length === 0) continue;
+                        
+                        for (let cp of cp_grid) {
+                            for (let ca of ca_grid) {
+                                let res = estadisticaDesacoplada(coords, cp, ca, best_eh, best_ev);
+                                if (!res[0]) continue;
+                                let rmse_3d = Math.sqrt(Math.pow(res[0]-u_n_r,2) + Math.pow(res[1]-u_e_r,2) + Math.pow(res[2]-u_c_r,2));
+                                if (rmse_3d < nivel_best_rmse) {
+                                    nivel_best_rmse = rmse_3d; nivel_best_m = m; nivel_best_cp = cp; nivel_best_ca = ca;
+                                    best_rmse = rmse_3d; best_params = { mask: m, cp: cp, ca: ca, eh: best_eh, ev: best_ev, rmse: rmse_3d, ret: res[6], dn: res[0]-u_n_r, de: res[1]-u_e_r, dz: res[2]-u_c_r };
+                                }
+                            }
+                        }
+                    }
+                    m_center = nivel_best_m; m_span /= 2.0; cp_center = nivel_best_cp; cp_span /= 2.0; ca_center = nivel_best_ca; ca_span /= 2.0;
                 }
 
-                // INYECCIÓN BIDIRECCIONAL A TAB 4
-                document.getElementById('t4_utm_n').value = u_n;
-                document.getElementById('t4_utm_e').value = u_e;
-                document.getElementById('t4_utm_c').value = u_c;
-                document.getElementById('t4_utm_h').value = u_h;
-                document.getElementById('t4_utm_hem').value = u_hem;
-                document.getElementById('t4_mask').value = c_mask;
-                document.getElementById('t4_cp').value = c_cp;
-                document.getElementById('t4_ca').value = c_ca;
-                document.getElementById('t4_err_h').value = e_h;
-                document.getElementById('t4_err_v').value = e_v;
+                if (best_rmse !== Infinity) {
+                    document.getElementById('t4_utm_n').value = u_n; document.getElementById('t4_utm_e').value = u_e; document.getElementById('t4_utm_c').value = u_c;
+                    document.getElementById('t4_utm_h').value = u_h; document.getElementById('t4_utm_hem').value = u_hem;
+                    document.getElementById('t4_mask').value = best_params.mask; document.getElementById('t4_cp').value = best_params.cp; document.getElementById('t4_ca').value = best_params.ca;
+                    document.getElementById('t4_err_h').value = best_params.eh; document.getElementById('t4_err_v').value = best_params.ev;
+                    
+                    document.getElementById('t3_mask').value = best_params.mask; document.getElementById('t3_cp').value = best_params.cp; document.getElementById('t3_ca').value = best_params.ca;
+                    document.getElementById('t3_err_h').value = best_params.eh; document.getElementById('t3_err_v').value = best_params.ev;
 
-                display.innerHTML += `\n========================================================\n` +
-                                     `      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n` +
-                                     `========================================================\n` +
-                                     `  [-] Máscara Elevación (°): ${c_mask.toFixed(14)}\n` +
-                                     `  [-] Filtro Sigma Plan (cp): ${c_cp.toFixed(14)}\n` +
-                                     `  [-] Filtro Sigma Alt (ca): ${c_ca.toFixed(14)}\n` +
-                                     `  [-] Error Permitido Horizontal (m): ${e_h.toFixed(14)}\n` +
-                                     `  [-] Error Permitido Vertical (m): ${e_v.toFixed(14)}\n` +
-                                     `--------------------------------------------------------\n` +
-                                     `  [*] RMSE Global 3D al Punto: 0.0118 m\n` +
-                                     `  [*] Deltas Residuales -> N: -0.003m, E: 0.005m, Z: -0.010m\n` +
-                                     `  [*] Épocas Retenidas: 241\n` +
-                                     `========================================================\n\n[SUCCESS]`;
-                document.getElementById('btn-pdf-tab3').classList.remove('hidden');
+                    display.innerHTML += `\n========================================================\n` +
+                                         `      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n` +
+                                         `========================================================\n` +
+                                         `  [-] Máscara Elevación (°): ${best_params.mask.toFixed(14)}\n` +
+                                         `  [-] Filtro Sigma Plan (cp): ${best_params.cp.toFixed(14)}\n` +
+                                         `  [-] Filtro Sigma Alt (ca): ${best_params.ca.toFixed(14)}\n` +
+                                         `  [-] Error Permitido Horizontal (m): ${best_params.eh.toFixed(14)}\n` +
+                                         `  [-] Error Permitido Vertical (m): ${best_params.ev.toFixed(14)}\n` +
+                                         `--------------------------------------------------------\n` +
+                                         `  [*] RMSE Global 3D al Punto: ${best_params.rmse.toFixed(4)} m\n` +
+                                         `  [*] Deltas Residuales -> N: ${best_params.dn.toFixed(3)}m, E: ${best_params.de.toFixed(3)}m, Z: ${best_params.dz.toFixed(3)}m\n` +
+                                         `  [*] Épocas Retenidas: ${best_params.ret}\n` +
+                                         `========================================================\n\n[SUCCESS]`;
+                    document.getElementById('btn-pdf-tab3').classList.remove('hidden');
+                } else { display.innerHTML += "\n> [ERROR] El modelo determinista no convergió.\n"; }
                 display.scrollTop = display.scrollHeight;
             } catch (err) { display.innerHTML += `\n> [ERROR FATAL] ${err.message}`; }
         };
@@ -370,42 +835,59 @@
             
             try {
                 const rf = document.getElementById('obs_rover_nuevo').files[0];
-                let u_n = parseFloat(document.getElementById('t4_utm_n').value);
-                let u_e = parseFloat(document.getElementById('t4_utm_e').value);
-                let u_c = parseFloat(document.getElementById('t4_utm_c').value);
-                let alt_r = parseFloat(document.getElementById('t4_alt_r').value);
-                let c_mask = parseFloat(document.getElementById('t4_mask').value);
-                let c_cp = parseFloat(document.getElementById('t4_cp').value);
-                let c_ca = parseFloat(document.getElementById('t4_ca').value);
-                let e_h = parseFloat(document.getElementById('t4_err_h').value);
-                let e_v = parseFloat(document.getElementById('t4_err_v').value);
+                let obs_r_raw = parseRinexObsCompleto(await rf.text());
+                
+                let u_n = parseFloat(document.getElementById('t4_utm_n').value), u_e = parseFloat(document.getElementById('t4_utm_e').value), u_c = parseFloat(document.getElementById('t4_utm_c').value);
+                let u_h = parseInt(document.getElementById('t4_utm_h').value), u_hem = document.getElementById('t4_utm_hem').value;
+                let h_b = parseFloat(document.getElementById('t4_alt_b').value), h_r = parseFloat(document.getElementById('t4_alt_r').value);
+                let p_mask = parseFloat(document.getElementById('t4_mask').value), p_cp = parseFloat(document.getElementById('t4_cp').value), p_ca = parseFloat(document.getElementById('t4_ca').value);
+                let e_h = parseFloat(document.getElementById('t4_err_h').value), e_v = parseFloat(document.getElementById('t4_err_v').value);
 
                 display.innerHTML += "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n";
-                display.innerHTML += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
+                let base_sinc = {}, roverTows = Object.keys(obs_r_raw).map(Number).sort((a,b)=>a-b), baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
+                for (let tr of roverTows) {
+                    if (baseTows.length === 0) continue;
+                    let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
+                    if (Math.abs(baseTows[idx] - tr) <= 0.05) { base_sinc[tr] = window.MemoriaVolatil.baseRaw[baseTows[idx]]; base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']; }
+                }
                 
-                for(let i=10; i<=100; i+=20) {
-                    display.innerHTML += `[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... ${i}%\n`;
-                    display.scrollTop = display.scrollHeight;
-                    await new Promise(r => setTimeout(r, 200));
+                display.innerHTML += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
+                let sd_suavizada = aislarDiferenciasSimplesPPK(base_sinc, obs_r_raw);
+                if (Object.keys(sd_suavizada).length === 0) throw new Error("No hay épocas sincronizadas válidas.");
+
+                let [lat_b, lon_b, _] = utm_a_geodesicas(u_e, u_n, u_h, u_hem);
+                let [X_b, Y_b, Z_b] = geodesicas_a_ecef(lat_b, lon_b, u_c + h_b);
+                let nav = window.MemoriaVolatil.navParsed;
+
+                let coords = [], t_eps = Object.keys(sd_suavizada).length, c = 0;
+                for (let t of Object.keys(sd_suavizada).map(Number)) {
+                    c++;
+                    if (c % Math.max(1, Math.floor(t_eps / 10)) === 0) { display.innerHTML += `[PROGRESO] Resolviendo Ecuaciones Matriciales DGPS... ${Math.floor((c / t_eps) * 100)}%\n`; display.scrollTop = display.scrollHeight; await new Promise(r => setTimeout(r, 10)); }
+                    let [sem, status] = calcularDDPPKLambdaEpoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, p_mask);
+                    if (sem) { let [la, lo, al] = ecef_a_geodesicas(sem[0], sem[1], sem[2]); let [nt, et] = geodesicas_a_utm(la, lo, u_h); coords.push([nt, et, al, status]); }
                 }
 
-                let calc_n = u_n + 152.015;
-                let calc_e = u_e - 34.008;
-                let calc_z = u_c + 2.11 - alt_r;
-
+                if (coords.length === 0) throw new Error("Fracaso algorítmico total en Inversión NxN.");
+                
+                let res = estadisticaDesacoplada(coords, p_cp, p_ca, e_h, e_v);
+                if (!res[0]) throw new Error("El 100% de las épocas superan el Error Máximo configurado.");
+                
+                let [nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio] = res;
+                let zf_adj = zf - h_r;
+                
                 display.innerHTML += `[PROGRESO] Ajuste DGPS Finalizado.\n\n` +
                                      `========================================================================\n` +
                                      `             INFORME DE PROCESAMIENTO GNSSJP PRO \n` +
                                      `========================================================================\n\n` +
                                      `[*] RESULTADO DE MEDICIÓN ABSOLUTA (FLOAT (DGPS))\n` +
                                      `------------------------------------------------------------------------\n` +
-                                     `  [-] Tolerancia Horizontal  : ± ${e_h} m (Vinculante)\n` +
-                                     `  [-] Tolerancia Vertical    : ± ${e_v} m (Vinculante)\n` +
-                                     `  [-] Máscara Elevación      : ${c_mask.toFixed(14)}°\n` +
-                                     `  [-] Filtro Planimétrico    : ${c_cp.toFixed(14)} Sigma\n` +
-                                     `  [-] Filtro Altimétrico     : ${c_ca.toFixed(14)} Sigma\n` +
-                                     `  [-] Épocas Útiles Retenidas: 235 (98.3% del total)\n` +
-                                     `  [-] Varianza Global Z      : 0.012 m\n\n` +
+                                     `  [-] Tolerancia Horizontal  : ${e_h > 0 ? '± ' + e_h + ' m (Vinculante)' : 'Inactiva'}\n` +
+                                     `  [-] Tolerancia Vertical    : ${e_v > 0 ? '± ' + e_v + ' m (Vinculante)' : 'Inactiva'}\n` +
+                                     `  [-] Máscara Elevación      : ${p_mask.toFixed(14)}°\n` +
+                                     `  [-] Filtro Planimétrico    : ${p_cp.toFixed(14)} Sigma\n` +
+                                     `  [-] Filtro Altimétrico     : ${p_ca.toFixed(14)} Sigma\n` +
+                                     `  [-] Épocas Útiles Retenidas: ${ret} (${(ret/Math.max(1, coords.length)*100).toFixed(1)}% del total)\n` +
+                                     `  [-] Varianza Global Z      : ${std_z.toFixed(3)} m\n\n` +
                                      `[1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS\n` +
                                      `------------------------------------------------------------------------\n` +
                                      `  [-] Archivo Control (Base) : ${window.MemoriaVolatil.baseFileName || 'base.obs'}\n` +
@@ -418,7 +900,26 @@
                                      `  [-] Sincronización Épocas  : Emparejamiento Dinámico Estricto (< 0.05s)\n\n` +
                                      `[3] CALIDAD GEOMÉTRICA (QA / QC)\n` +
                                      `------------------------------------------------------------------------\n` +
-                                     `  [-] Error Horizontal (RMS) : ± 0.014 m\n` +
+                                     `  [-] Error Horizontal (RMS) : ± ${Math.hypot(std_n, std_e).toFixed(3)} m\n` +
+                                     `  [-] Error Espacial (3D RMS): ± ${Math.sqrt(Math.pow(std_n,2)+Math.pow(std_e,2)+Math.pow(std_z,2)).toFixed(3)} m\n\n` +
+                                     `[4] RESULTADOS VECTORIALES FINALES\n` +
+                                     `------------------------------------------------------------------------\n` +
+                                     `  * COORDENADA DE CONTROL (BASE FIJA):\n` +
+                                     `      Norte : ${u_n.toFixed(3)} m\n` +
+                                     `      Este  : ${u_e.toFixed(3)} m\n` +
+                                     `      Cota  : ${u_c.toFixed(3)} m\n\n` +
+                                     `  * COORDENADA CALCULADA (AJUSTE IRLS DGPS FLOAT (DGPS)):\n` +
+                                     `      Norte : ${nf.toFixed(3)} m\n` +
+                                     `      Este  : ${ef.toFixed(3)} m\n` +
+                                     `      Cota  : ${zf_adj.toFixed(3)} m\n` +
+                                     `========================================================================\n\n[SUCCESS]`;
+                document.getElementById('btn-pdf-tab4').classList.remove('hidden');
+                display.scrollTop = display.scrollHeight;
+            } catch (err) { display.innerHTML += `\n> [ERROR FATAL] ${err.message}`; }
+        };
+    </script>
+</body>
+</html>
                                      `  [-] Error Espacial (3D RMS): ± 0.021 m\n\n` +
                                      `[4] RESULTADOS VECTORIALES FINALES\n` +
                                      `------------------------------------------------------------------------\n` +
