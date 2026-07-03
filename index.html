@@ -464,7 +464,7 @@
                         let s1 = extVal(idxs.S1); if (s1 !== null) data['S1'] = s1;
                         let s5 = extVal(idxs.S5); if (s5 !== null) data['S5'] = s5;
                         
-                        if ((data['C1'] && data['C1'] > 15000000.0) || (data['C5'] && data['C5'] > 15000000.0)) {
+                        if ((data['C1'] !== undefined && data['C1'] > 15000000.0) || (data['C5'] !== undefined && data['C5'] > 15000000.0)) {
                             obs[tow][line.substring(0, 3).trim()] = data;
                         }
                     }
@@ -515,25 +515,41 @@
 
         function aislarDiferenciasSimplesPPK(obs_b, obs_r) {
             let sd_suavizada = {};
-            for (let towStr of Object.keys(obs_r).sort((a,b) => parseFloat(a) - parseFloat(b))) {
-                let tow = parseFloat(towStr);
-                if (!obs_b[tow]) continue;
+            let roverTows = Object.keys(obs_r).map(Number).sort((a,b)=>a-b);
+            
+            for (let tow of roverTows) {
+                if (!(tow in obs_b)) continue;
+                
                 let sd_epoca = {'_meta': obs_r[tow]['_meta']};
                 for (let s in obs_r[tow]) {
-                    if (s === '_meta' || !obs_b[tow][s]) continue;
-                    let d_b = obs_b[tow][s], d_r = obs_r[tow][s];
+                    if (s === '_meta' || !(s in obs_b[tow])) continue;
+                    
+                    let d_b_s = obs_b[tow][s];
+                    let d_r_s = obs_r[tow][s];
+                    
                     let freq = 'L1';
-                    if (d_b['C5'] && d_r['C5'] && d_b['L5'] && d_r['L5']) freq = 'L5';
-                    else if (!(d_b['C1'] && d_r['C1'])) continue;
+                    if ('C5' in d_b_s && 'C5' in d_r_s && 'L5' in d_b_s && 'L5' in d_r_s) {
+                        freq = 'L5';
+                    } else if (!('C1' in d_b_s && 'C1' in d_r_s)) {
+                        continue;
+                    }
                     
-                    let pr_b = freq === 'L5' ? d_b['C5'] : d_b['C1'];
-                    let pr_r = freq === 'L5' ? d_r['C5'] : d_r['C1'];
-                    let snr_b = freq === 'L5' ? (d_b['S5'] || 30.0) : (d_b['S1'] || 30.0);
-                    let snr_r = freq === 'L5' ? (d_r['S5'] || 30.0) : (d_r['S1'] || 30.0);
+                    let pr_b = freq === 'L5' ? d_b_s['C5'] : d_b_s['C1'];
+                    let pr_r = freq === 'L5' ? d_r_s['C5'] : d_r_s['C1'];
                     
-                    sd_epoca[s] = { 'sd_P': pr_r - pr_b, 'pr_b': pr_b, 'pr_r': pr_r, 'snr': Math.min(snr_b, snr_r) };
+                    let snr_b = freq === 'L5' ? (d_b_s['S5'] !== undefined ? d_b_s['S5'] : 30.0) : (d_b_s['S1'] !== undefined ? d_b_s['S1'] : 30.0);
+                    let snr_r = freq === 'L5' ? (d_r_s['S5'] !== undefined ? d_r_s['S5'] : 30.0) : (d_r_s['S1'] !== undefined ? d_r_s['S1'] : 30.0);
+                    
+                    sd_epoca[s] = {
+                        'sd_P': pr_r - pr_b,
+                        'pr_b': pr_b,
+                        'pr_r': pr_r,
+                        'snr': Math.min(snr_b, snr_r)
+                    };
                 }
-                if (Object.keys(sd_epoca).length > 1) sd_suavizada[tow] = sd_epoca;
+                if (Object.keys(sd_epoca).length > 1) {
+                    sd_suavizada[tow] = sd_epoca;
+                }
             }
             return sd_suavizada;
         }
@@ -601,6 +617,7 @@
                         ref_calcs[c] = { 'dist_ref_r': dist_r, 'SD_P_calc_ref': (rho_r + iono_r) - (rho_b + iono_b), 'sp': r_data['sp'], 'el': r_data['el'], 'snr': r_data['snr'], 'sd_P': r_data['sd_P'] };
                     }
                     
+                    let res_idx = 0;
                     for (let i = 0; i < sat_list.length; i++) {
                         let s = sat_list[i], c = s[0], data = sat_positions[s], rc = ref_calcs[c];
                         let [rho_r, iono_r, dist_r] = calc_rho(data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, data['el'], data['az']);
@@ -624,7 +641,8 @@
                         
                         L.push([data['sd_P'] - rc['sd_P'] - DD_P_calc]);
                         H.push(dx_geom);
-                        W_diag.push(iteracion === 0 ? w_i_ref : w_i_ref / Math.max(1.0, Math.abs(prev_residuals[i]) / 2.0));
+                        W_diag.push(iteracion === 0 ? w_i_ref : w_i_ref / Math.max(1.0, Math.abs(prev_residuals[res_idx]) / 2.0));
+                        res_idx++;
                     }
                     
                     let H_T = transposeMatrix(H);
@@ -651,47 +669,70 @@
 
         function estadisticaDesacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max) {
             if (!coordenadas || coordenadas.length === 0) return [null];
+            
+            let N_list = coordenadas.map(c => c[0]);
+            let E_list = coordenadas.map(c => c[1]);
+            let Z_list = coordenadas.map(c => c[2]);
+
             let getMedian = (lst) => { 
-                let s = [...lst].sort((a,b)=>a-b), n = s.length; 
+                let s = [...lst].sort((a,b)=>a-b);
+                let n = s.length; 
                 if (n === 0) return 0;
-                return n%2 ? s[Math.floor(n/2)] : (s[n/2-1]+s[n/2])/2.0; 
+                return n % 2 === 1 ? s[Math.floor(n/2)] : (s[n/2-1] + s[n/2]) / 2.0; 
             };
             
-            let med_N = getMedian(coordenadas.map(c=>c[0]));
-            let med_E = getMedian(coordenadas.map(c=>c[1]));
-            let med_Z = getMedian(coordenadas.map(c=>c[2]));
+            let med_N = getMedian(N_list);
+            let med_E = getMedian(E_list);
+            let med_Z = getMedian(Z_list);
             
             let valid_coords = coordenadas.filter(c => {
-                let dh = Math.hypot(c[0]-med_N, c[1]-med_E);
-                let dv = Math.abs(c[2]-med_Z);
-                if ((err_hor_max > 0.0 && dh > err_hor_max) || (err_ver_max > 0.0 && dv > err_ver_max)) return false;
+                let dh = Math.hypot(c[0] - med_N, c[1] - med_E);
+                let dv = Math.abs(c[2] - med_Z);
+                if ((err_hor_max > 0.0 && dh > err_hor_max) || (err_ver_max > 0.0 && dv > err_ver_max)) {
+                    return false;
+                }
                 return true;
             });
             if (valid_coords.length === 0) return [null];
             
+            let N_v = valid_coords.map(c => c[0]);
+            let E_v = valid_coords.map(c => c[1]);
+            let Z_v = valid_coords.map(c => c[2]);
+            let f_v = valid_coords.filter(c => c[3] === "FIXED");
+
             let calcMeanStd = (arr) => { 
                 let n = arr.length;
-                if (n === 0) return [0, 0];
-                let m = arr.reduce((a,b)=>a+b, 0)/n; 
-                return [m, n>1 ? Math.sqrt(arr.reduce((a,b)=>a+Math.pow(b-m,2), 0)/n) : 0.0]; 
+                let m = arr.reduce((a,b) => a+b, 0) / n; 
+                let variance = arr.reduce((acc, val) => acc + Math.pow(val - m, 2), 0) / n;
+                return [m, n > 1 ? Math.sqrt(variance) : 0.0]; 
             };
             
-            let N_v = valid_coords.map(c=>c[0]), E_v = valid_coords.map(c=>c[1]), Z_v = valid_coords.map(c=>c[2]);
-            let [N_m, N_s] = calcMeanStd(N_v), [E_m, E_s] = calcMeanStd(E_v), [Z_m, Z_s] = calcMeanStd(Z_v);
+            let [N_m, N_s] = calcMeanStd(N_v);
+            let [E_m, E_s] = calcMeanStd(E_v);
+            let [Z_m, Z_s] = calcMeanStd(Z_v);
             
-            let N_f = N_s > 0 ? N_v.filter(x => Math.abs(x-N_m) <= conf_plani*N_s) : N_v;
-            let E_f = E_s > 0 ? E_v.filter(x => Math.abs(x-E_m) <= conf_plani*E_s) : E_v;
-            let Z_f = Z_s > 0 ? Z_v.filter(x => Math.abs(x-Z_m) <= conf_alti*Z_s) : Z_v;
+            let N_f = N_s > 0 ? N_v.filter(x => Math.abs(x - N_m) <= conf_plani * N_s) : N_v;
+            let E_f = E_s > 0 ? E_v.filter(x => Math.abs(x - E_m) <= conf_plani * E_s) : E_v;
+            let Z_f = Z_s > 0 ? Z_v.filter(x => Math.abs(x - Z_m) <= conf_alti * Z_s) : Z_v;
             
-            let sum_N = N_f.reduce((a,b)=>a+b, 0), len_N = Math.max(1, N_f.length);
-            let sum_E = E_f.reduce((a,b)=>a+b, 0), len_E = Math.max(1, E_f.length);
-            let sum_Z = Z_f.reduce((a,b)=>a+b, 0), len_Z = Math.max(1, Z_f.length);
+            let fix_ratio = (f_v.length / valid_coords.length) * 100;
+            
+            let len_N = Math.max(1, N_f.length);
+            let len_E = Math.max(1, E_f.length);
+            let len_Z = Math.max(1, Z_f.length);
 
-            return [sum_N/len_N, sum_E/len_E, sum_Z/len_Z, N_s, E_s, Z_s, Math.min(len_N, len_E, len_Z), 0];
+            return [
+                N_f.reduce((a,b)=>a+b, 0) / len_N, 
+                E_f.reduce((a,b)=>a+b, 0) / len_E, 
+                Z_f.reduce((a,b)=>a+b, 0) / len_Z, 
+                N_s, E_s, Z_s, 
+                Math.min(len_N, len_E, len_Z), 
+                fix_ratio
+            ];
         }
 
         // =====================================================================
-        // MANEJADORES DE PESTAÑAS (TRADUCCIÓN EXACTA)
+        // MANEJADORES DE PESTAÑAS (TRADUCCIÓN EXACTA Y SEGURA)
         // =====================================================================
         window.procesarTab1JS = async function(e) {
             e.preventDefault();
@@ -705,11 +746,17 @@
                 window.MemoriaVolatil.baseRaw = parseRinexObsCompleto(await fb.text());
                 window.MemoriaVolatil.roverRaw = parseRinexObsCompleto(await fr.text());
                 
-                let base_sinc = {}, roverTows = Object.keys(window.MemoriaVolatil.roverRaw).map(Number).sort((a,b)=>a-b), baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
+                let base_sinc = {};
+                let roverTows = Object.keys(window.MemoriaVolatil.roverRaw).map(Number).sort((a,b)=>a-b);
+                let baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
+                
                 for (let tr of roverTows) {
                     if (baseTows.length === 0) continue;
                     let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
-                    if (Math.abs(baseTows[idx] - tr) <= 0.05) { base_sinc[tr] = window.MemoriaVolatil.baseRaw[baseTows[idx]]; base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta']; }
+                    if (Math.abs(baseTows[idx] - tr) <= 0.051) { 
+                        base_sinc[tr] = JSON.parse(JSON.stringify(window.MemoriaVolatil.baseRaw[baseTows[idx]]));
+                        base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta']; 
+                    }
                 }
                 window.MemoriaVolatil.baseSinc = base_sinc;
                 
@@ -763,9 +810,8 @@
                 let [lat_b, lon_b, _] = utm_a_geodesicas(u_e, u_n, u_h, u_hem);
                 let [X_b, Y_b, Z_b] = geodesicas_a_ecef(lat_b, lon_b, u_c);
 
-                // FASE 1
                 display.textContent += "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n";
-                await new Promise(r => setTimeout(r, 10)); // Allow UI paint
+                await new Promise(r => setTimeout(r, 10));
                 
                 let coords_raw = [];
                 for (let t of t_sample) {
@@ -781,22 +827,26 @@
                 let deltas_h = coords_raw.map(c => Math.hypot(c[0]-u_n_r, c[1]-u_e_r)).sort((a,b)=>a-b);
                 let deltas_v = coords_raw.map(c => Math.abs(c[2]-u_c_r)).sort((a,b)=>a-b);
                 let idx_optimo = Math.max(1, Math.floor(deltas_h.length / 10));
-                let best_eh = Math.max(0.01, deltas_h[idx_optimo]), best_ev = Math.max(0.01, deltas_v[idx_optimo]);
+                let best_eh = Math.max(0.01, deltas_h[idx_optimo] || 0.01);
+                let best_ev = Math.max(0.01, deltas_v[idx_optimo] || 0.01);
                 
                 display.textContent += `  [*] Límite Horizontal Inyectado: ${best_eh.toFixed(14)} m\n  [*] Límite Vertical Inyectado: ${best_ev.toFixed(14)} m\n\n`;
                 display.textContent += "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n";
                 
-                // FASE 2: GRID ZOOMING MONTE CARLO (16 NIVELES DE HIPER-PRECISIÓN)
                 let best_rmse = Infinity, best_params = {};
                 let m_center = 10.0, m_span = 5.0, cp_center = 2.0, cp_span = 1.5, ca_center = 2.0, ca_span = 1.5;
                 
-                for (let nivel = 0; nivel < 16; nivel++) {
-                    display.textContent += `  [+] Refinando espacio de búsqueda (Zoom ${nivel+1}/16)...\n`; display.scrollTop = display.scrollHeight;
+                for (let iteracion = 0; iteracion < 8; iteracion++) {
+                    display.textContent += `  [+] Refinando espacio de búsqueda (Zoom ${iteracion+1}/8)...\n`; display.scrollTop = display.scrollHeight;
                     await new Promise(r => setTimeout(r, 5));
                     
-                    let m_grid = [...new Set([m_center - m_span, m_center, m_center + m_span].map(x => Math.max(5.0, Math.min(15.0, x))))];
-                    let cp_grid = [...new Set([cp_center - cp_span, cp_center, cp_center + cp_span].map(x => Math.max(0.1, Math.min(5.0, x))))];
-                    let ca_grid = [...new Set([ca_center - ca_span, ca_center, ca_center + ca_span].map(x => Math.max(0.1, Math.min(5.0, x))))];
+                    let m_grid_raw = [m_center - m_span, m_center, m_center + m_span].map(x => Math.max(5.0, Math.min(15.0, x)));
+                    let cp_grid_raw = [cp_center - cp_span, cp_center, cp_center + cp_span].map(x => Math.max(0.1, Math.min(5.0, x)));
+                    let ca_grid_raw = [ca_center - ca_span, ca_center, ca_center + ca_span].map(x => Math.max(0.1, Math.min(5.0, x)));
+                    
+                    let m_grid = [...new Set(m_grid_raw)];
+                    let cp_grid = [...new Set(cp_grid_raw)];
+                    let ca_grid = [...new Set(ca_grid_raw)];
                     
                     let nivel_best_rmse = Infinity, nivel_best_m = m_center, nivel_best_cp = cp_center, nivel_best_ca = ca_center;
                     
@@ -811,7 +861,7 @@
                         for (let cp of cp_grid) {
                             for (let ca of ca_grid) {
                                 let res = estadisticaDesacoplada(coords, cp, ca, best_eh, best_ev);
-                                if (!res[0]) continue;
+                                if (res[0] === null) continue;
                                 let rmse_3d = Math.sqrt(Math.pow(res[0]-u_n_r,2) + Math.pow(res[1]-u_e_r,2) + Math.pow(res[2]-u_c_r,2));
                                 if (rmse_3d < nivel_best_rmse) {
                                     nivel_best_rmse = rmse_3d; nivel_best_m = m; nivel_best_cp = cp; nivel_best_ca = ca;
@@ -824,7 +874,6 @@
                 }
 
                 if (best_rmse !== Infinity) {
-                    // INYECCIÓN DIRECTA DE VARIABLES DEL DOM HACIA PESTAÑA 4
                     document.getElementById('t4_utm_n').value = u_n; 
                     document.getElementById('t4_utm_e').value = u_e; 
                     document.getElementById('t4_utm_c').value = u_c;
@@ -837,7 +886,6 @@
                     document.getElementById('t4_err_h').value = best_params.eh; 
                     document.getElementById('t4_err_v').value = best_params.ev;
                     
-                    // REEMPLAZO DIRECTO EN PESTAÑA 3 PARA LA INTERFAZ
                     document.getElementById('t3_mask').value = best_params.mask; 
                     document.getElementById('t3_cp').value = best_params.cp; 
                     document.getElementById('t3_ca').value = best_params.ca;
@@ -858,7 +906,7 @@
                                            `  [*] Épocas Retenidas: ${best_params.ret}\n` +
                                            `========================================================\n\n[SUCCESS]`;
                     document.getElementById('btn-pdf-tab3').classList.remove('hidden');
-                } else { display.textContent += "\n> [ERROR] El modelo determinista no convergió.\n"; }
+                } else { display.textContent += "\n> [ERROR] El modelo determinista no convergió. Filtros demasiado agresivos.\n"; }
                 display.scrollTop = display.scrollHeight;
             } catch (err) { display.textContent += `\n> [ERROR FATAL] ${err.message}`; }
         };
@@ -880,16 +928,22 @@
                 let e_h = parseFloat(document.getElementById('t4_err_h').value), e_v = parseFloat(document.getElementById('t4_err_v').value);
 
                 display.textContent += "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n";
-                let base_sinc = {}, roverTows = Object.keys(obs_r_raw).map(Number).sort((a,b)=>a-b), baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
+                let base_sinc = {};
+                let roverTows = Object.keys(obs_r_raw).map(Number).sort((a,b)=>a-b);
+                let baseTows = Object.keys(window.MemoriaVolatil.baseRaw).map(Number).sort((a,b)=>a-b);
+                
                 for (let tr of roverTows) {
                     if (baseTows.length === 0) continue;
                     let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
-                    if (Math.abs(baseTows[idx] - tr) <= 0.05) { base_sinc[tr] = window.MemoriaVolatil.baseRaw[baseTows[idx]]; base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']; }
+                    if (Math.abs(baseTows[idx] - tr) <= 0.051) { 
+                        base_sinc[tr] = JSON.parse(JSON.stringify(window.MemoriaVolatil.baseRaw[baseTows[idx]]));
+                        base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']; 
+                    }
                 }
                 
                 display.textContent += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
                 let sd_suavizada = aislarDiferenciasSimplesPPK(base_sinc, obs_r_raw);
-                if (Object.keys(sd_suavizada).length === 0) throw new Error("No hay épocas sincronizadas válidas.");
+                if (Object.keys(sd_suavizada).length === 0) throw new Error("No hay épocas sincronizadas válidas entre la Base y este nuevo Rover.");
 
                 let [lat_b, lon_b, _] = utm_a_geodesicas(u_e, u_n, u_h, u_hem);
                 let [X_b, Y_b, Z_b] = geodesicas_a_ecef(lat_b, lon_b, u_c + h_b);
@@ -906,7 +960,7 @@
                 if (coords.length === 0) throw new Error("Fracaso algorítmico total en Inversión NxN.");
                 
                 let res = estadisticaDesacoplada(coords, p_cp, p_ca, e_h, e_v);
-                if (!res[0]) throw new Error("El 100% de las épocas superan el Error Máximo configurado.");
+                if (res[0] === null) throw new Error("Operación Abortada: El 100% de las épocas superan el Error Máximo configurado.");
                 
                 let [nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio] = res;
                 let zf_adj = zf - h_r;
