@@ -277,13 +277,14 @@
             window.switchTab(2);
         };
 
-        // DESCARGADOR ASINCRÓNICO AUTOMÁTICO DE EFEMÉRIDES (EVASIÓN DE CORS Y UNGZIP IN SITU)
+        // DESCARGADOR ASINCRÓNICO AUTOMÁTICO DE EFEMÉRIDES (CON MATRIZ DE REDUNDANCIA CORS)
         window.ejecutarDescargaEfemerides = async function() {
             const display = document.getElementById('console2');
             display.innerHTML = "> [SISTEMA] Iniciando Motor de Navegación Orbital Asíncrono...\n";
             
             if (!window.MemoriaVolatil.fechaBase) {
-                display.innerHTML += "> [ERROR FATAL] Datos temporales base ausentes en RAM.\n"; return;
+                display.innerHTML += "> [ERROR FATAL] Datos temporales base ausentes en RAM. Ejecute la Pestaña 1 primero.\n"; 
+                return;
             }
             
             const { year, month, day, hour } = window.MemoriaVolatil.fechaBase;
@@ -293,10 +294,16 @@
             const doyStr = String(doy).padStart(3, '0');
             
             const prefijos = ['IGS', 'WRD', 'BKG', 'GOP'];
-            const proxyCORS = "https://corsproxy.io/?";
-            let urls = [];
             
-            // Construcción de matriz de redundancia (1D de contingencia y ventanas horarias de 24h)
+            // Matriz de proxies redundantes especializados en transmisión binaria cruda (Raw Stream)
+            const proxies = [
+                "https://api.allorigins.win/raw?url=",
+                "https://corsproxy.io/?",
+                "https://api.codetabs.com/v1/proxy?quest="
+            ];
+            
+            let urls = [];
+            // Construcción de malla URL
             prefijos.forEach(p => urls.push(`https://igs.bkg.bund.de/root_ftp/IGS/BRDC/${year}/${doyStr}/BRDC00${p}_R_${year}${doyStr}0000_01D_MN.rnx.gz`));
             let horas = [hour];
             for(let i=hour-1; i>=0; i--) horas.push(i);
@@ -304,31 +311,50 @@
             prefijos.forEach(p => horas.forEach(h => urls.push(`https://igs.bkg.bund.de/root_ftp/IGS/BRDC/${year}/${doyStr}/BRDC00${p}_R_${year}${doyStr}${String(h).padStart(2,'0')}00_01H_MN.rnx.gz`)));
             
             for (let url of urls) {
-                try {
-                    let targetFileName = url.split('/').pop();
-                    display.innerHTML += `  [+] Conectando con IGS -> Descargando stream binario: ${targetFileName}\n`;
-                    
-                    let response = await fetch(proxyCORS + encodeURIComponent(url));
-                    if (!response.ok) continue;
-                    
-                    let buffer = await response.arrayBuffer();
-                    let byteArray = new Uint8Array(buffer);
-                    
-                    display.innerHTML += `  [+] Descomprimiendo GZIP estructurado en RAM vía IEEE 754...\n`;
-                    // Descomprimir binario comprimido mediante Pako directamente a String de JavaScript
-                    let textNav = pako.ungzip(byteArray, { to: 'string' });
-                    
-                    window.MemoriaVolatil.navText = textNav;
-                    window.MemoriaVolatil.navFileName = targetFileName.replace('.gz', '');
-                    
-                    display.innerHTML += `> [ÉXITO] Archivo de efemérides inyectado en RAM: ${window.MemoriaVolatil.navFileName}\n\n[SUCCESS]`;
-                    document.getElementById('btn-tab3').classList.remove('disabled-tab');
-                    document.getElementById('btn-tab4').classList.remove('disabled-tab');
-                    window.switchTab(3);
-                    return;
-                } catch(e) { /* Fallback silencioso iterativo sobre la malla de servidores */ }
+                let targetFileName = url.split('/').pop();
+                
+                for (let proxy of proxies) {
+                    try {
+                        display.innerHTML += `  [+] Intentando nodo (${proxy.split('/')[2]}): ${targetFileName}\n`;
+                        display.scrollTop = display.scrollHeight; 
+                        
+                        let response = await fetch(proxy + encodeURIComponent(url));
+                        if (!response.ok) continue;
+                        
+                        let buffer = await response.arrayBuffer();
+                        
+                        // Control de calidad: Un archivo RINEX .gz de IGS jamás pesa menos de 1KB.
+                        if (buffer.byteLength < 1000) {
+                            display.innerHTML += `  [-] Archivo corrupto o rate-limit detectado. Saltando nodo...\n`;
+                            continue;
+                        }
+                        
+                        let byteArray = new Uint8Array(buffer);
+                        
+                        display.innerHTML += `  [+] GZIP Binario capturado. Descomprimiendo en RAM vía IEEE 754...\n`;
+                        display.scrollTop = display.scrollHeight;
+                        
+                        // Extracción estructural en memoria sin tocar disco
+                        let textNav = pako.ungzip(byteArray, { to: 'string' });
+                        
+                        window.MemoriaVolatil.navText = textNav;
+                        window.MemoriaVolatil.navFileName = targetFileName.replace('.gz', '');
+                        
+                        display.innerHTML += `> [ÉXITO] Archivo de efemérides inyectado en RAM: ${window.MemoriaVolatil.navFileName}\n\n[SUCCESS]`;
+                        display.scrollTop = display.scrollHeight;
+                        
+                        // Habilitar siguientes pasos
+                        document.getElementById('btn-tab3').classList.remove('disabled-tab');
+                        document.getElementById('btn-tab4').classList.remove('disabled-tab');
+                        window.switchTab(3);
+                        return;
+                    } catch(e) { 
+                        // Fallback silencioso iterativo sobre la malla de servidores
+                    }
+                }
             }
-            display.innerHTML += "> [ERROR CRÍTICO] Colapso de conexión perimetral IGS. Servidores no responden.\n";
+            display.innerHTML += "> [ERROR CRÍTICO] Colapso de conexión perimetral IGS. Servidores no responden tras agotar la matriz de redundancia.\n";
+            display.scrollTop = display.scrollHeight;
         };
 
         // STUBS OPERATIVOS PARA LA INVERSIÓN MATRICIAL Y LOGÍSTICA DE CALIBRACIÓN
