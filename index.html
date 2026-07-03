@@ -70,7 +70,6 @@
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual en RAM)</h2>
-            <p class="text-sm text-gray-400 mb-4">Sube el archivo de efemérides descompreso (.nav o .rnx).</p>
             <form id="form-tab2" onsubmit="procesarTab2JS(event)">
                 <div class="mb-4">
                     <label class="block text-sm mb-1 text-blue-400 font-bold">Archivo de Efemérides (.nav):</label>
@@ -443,7 +442,7 @@
                             let y = parseInt(p[0]), m = parseInt(p[1]), d = parseInt(p[2]);
                             let h = parseInt(p[3]), mn = parseInt(p[4]), sec = parseFloat(p[5]);
                             if (y < 100) y += 2000;
-                            tow = parseFloat(gpsTimeToTow(y, m, d, h, mn, sec).toFixed(6));
+                            tow = Math.round(gpsTimeToTow(y, m, d, h, mn, sec) * 1e6) / 1e6;
                             obs[tow] = { '_meta': [y, m, d, h, mn, sec] };
                         }
                     } else if (tow && line.length > 3 && "GRECSJ".includes(line[0])) {
@@ -511,6 +510,26 @@
             let beta = iono_params['GPSB'].some(v=>v!==0) ? iono_params['GPSB'] : iono_params['BDSB'];
             ephemeris['_iono'] = {'alpha': alpha, 'beta': beta};
             return ephemeris;
+        }
+
+        // FUNCIÓN CLAVE PARA REPLICAR EXACTAMENTE LA CAÍDA DE PRECISIÓN EN DISCO DE APP.PY
+        function simularEscrituraDiscoPython(obs) {
+            let truncado = {};
+            for (let t in obs) {
+                truncado[t] = { '_meta': obs[t]['_meta'] };
+                for (let sat in obs[t]) {
+                    if (sat === '_meta') continue;
+                    let data = obs[t][sat];
+                    truncado[t][sat] = {};
+                    if ('C1' in data && data['C1'] > 0) truncado[t][sat]['C1'] = parseFloat(data['C1'].toFixed(3));
+                    if ('L1' in data && data['L1'] > 0) truncado[t][sat]['L1'] = parseFloat(data['L1'].toFixed(3));
+                    if ('C5' in data && data['C5'] > 0) truncado[t][sat]['C5'] = parseFloat(data['C5'].toFixed(3));
+                    if ('L5' in data && data['L5'] > 0) truncado[t][sat]['L5'] = parseFloat(data['L5'].toFixed(3));
+                    // Nota Forense: S1 y S5 se omiten deliberadamente aquí porque la función 
+                    // generar_rinex_sincronizado() en app.py NO las escribe en el archivo .obs
+                }
+            }
+            return truncado;
         }
 
         function aislarDiferenciasSimplesPPK(obs_b, obs_r) {
@@ -633,15 +652,20 @@
                             -(data['sp'][2] - Z_iter) / dist_r - (-(rc['sp'][2] - Z_iter) / rc['dist_ref_r'])
                         ];
                         
-                        let sin_el_i = Math.pow(Math.sin(data['el'] * Math.PI/180), 2);
-                        let sin_el_r = Math.pow(Math.sin(rc['el'] * Math.PI/180), 2);
-                        let snr_i = Math.pow(10.0, data['snr'] / 10.0);
-                        let snr_r = Math.pow(10.0, rc['snr'] / 10.0);
-                        let w_i_ref = (sin_el_i * snr_i * sin_el_r * snr_r) / Math.max(1.0, (sin_el_i * snr_i) + (sin_el_r * snr_r));
+                        let sin_el_i_sq = Math.pow(Math.sin(data['el'] * Math.PI/180), 2);
+                        let sin_el_ref_sq = Math.pow(Math.sin(rc['el'] * Math.PI/180), 2);
+                        let snr_i_pow = Math.pow(10.0, data['snr'] / 10.0);
+                        let snr_ref_pow = Math.pow(10.0, rc['snr'] / 10.0);
+                        let w_i_ref = (sin_el_i_sq * snr_i_pow * sin_el_ref_sq * snr_ref_pow) / Math.max(1.0, (sin_el_i_sq * snr_i_pow) + (sin_el_ref_sq * snr_ref_pow));
                         
-                        L.push([data['sd_P'] - rc['sd_P'] - DD_P_calc]);
+                        let DD_P_obs = data['sd_P'] - rc['sd_P'];
+                        let res_P = DD_P_obs - DD_P_calc;
+
+                        L.push([res_P]);
                         H.push(dx_geom);
-                        W_diag.push(iteracion === 0 ? w_i_ref : w_i_ref / Math.max(1.0, Math.abs(prev_residuals[res_idx]) / 2.0));
+                        
+                        let w_P = iteracion === 0 ? w_i_ref * 1.0 : w_i_ref * 1.0 / Math.max(1.0, Math.abs(prev_residuals[res_idx]) / 2.0);
+                        W_diag.push(w_P);
                         res_idx++;
                     }
                     
@@ -753,7 +777,7 @@
                 for (let tr of roverTows) {
                     if (baseTows.length === 0) continue;
                     let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
-                    if (Math.abs(baseTows[idx] - tr) <= 0.051) { 
+                    if (Math.abs(baseTows[idx] - tr) <= 0.05) { 
                         base_sinc[tr] = JSON.parse(JSON.stringify(window.MemoriaVolatil.baseRaw[baseTows[idx]]));
                         base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta']; 
                     }
@@ -802,7 +826,19 @@
                 let u_h = parseInt(document.getElementById('t3_utm_h').value), u_hem = document.getElementById('t3_utm_hem').value;
                 let u_n_r = parseFloat(document.getElementById('t3_utm_n_r').value), u_e_r = parseFloat(document.getElementById('t3_utm_e_r').value), u_c_r = parseFloat(document.getElementById('t3_utm_c_r').value);
                 
-                let obs_b_sync = window.MemoriaVolatil.baseSinc, obs_r_raw = window.MemoriaVolatil.roverRaw, nav = window.MemoriaVolatil.navParsed;
+                let obs_b_sync_crudo = window.MemoriaVolatil.baseSinc;
+                let obs_r_raw_crudo = window.MemoriaVolatil.roverRaw;
+                let nav = window.MemoriaVolatil.navParsed;
+
+                // REPLICA EXACTA DEL CUELLO DE BOTELLA DEL DISCO EN APP.PY
+                let rover_sinc_crudo = {};
+                for (let tr in obs_b_sync_crudo) {
+                    rover_sinc_crudo[tr] = obs_r_raw_crudo[tr];
+                }
+                
+                let obs_b_sync = simularEscrituraDiscoPython(obs_b_sync_crudo);
+                let obs_r_raw = simularEscrituraDiscoPython(rover_sinc_crudo);
+
                 display.textContent += "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n";
                 let sd_suavizada = aislarDiferenciasSimplesPPK(obs_b_sync, obs_r_raw);
                 let t_sample = Object.keys(sd_suavizada).map(Number);
@@ -880,17 +916,17 @@
                     document.getElementById('t4_utm_h').value = u_h; 
                     document.getElementById('t4_utm_hem').value = u_hem;
                     
-                    document.getElementById('t4_mask').value = best_params.mask; 
-                    document.getElementById('t4_cp').value = best_params.cp; 
-                    document.getElementById('t4_ca').value = best_params.ca;
-                    document.getElementById('t4_err_h').value = best_params.eh; 
-                    document.getElementById('t4_err_v').value = best_params.ev;
+                    document.getElementById('t4_mask').value = best_params.mask.toFixed(14); 
+                    document.getElementById('t4_cp').value = best_params.cp.toFixed(14); 
+                    document.getElementById('t4_ca').value = best_params.ca.toFixed(14);
+                    document.getElementById('t4_err_h').value = best_params.eh.toFixed(14); 
+                    document.getElementById('t4_err_v').value = best_params.ev.toFixed(14);
                     
-                    document.getElementById('t3_mask').value = best_params.mask; 
-                    document.getElementById('t3_cp').value = best_params.cp; 
-                    document.getElementById('t3_ca').value = best_params.ca;
-                    document.getElementById('t3_err_h').value = best_params.eh; 
-                    document.getElementById('t3_err_v').value = best_params.ev;
+                    document.getElementById('t3_mask').value = best_params.mask.toFixed(14); 
+                    document.getElementById('t3_cp').value = best_params.cp.toFixed(14); 
+                    document.getElementById('t3_ca').value = best_params.ca.toFixed(14);
+                    document.getElementById('t3_err_h').value = best_params.eh.toFixed(14); 
+                    document.getElementById('t3_err_v').value = best_params.ev.toFixed(14);
 
                     display.textContent += `\n========================================================\n` +
                                            `      [INFORME] PARÁMETROS ÓPTIMOS (CALIBRACIÓN OR)\n` +
@@ -935,13 +971,14 @@
                 for (let tr of roverTows) {
                     if (baseTows.length === 0) continue;
                     let idx = baseTows.reduce((best, curr, i) => Math.abs(curr - tr) < Math.abs(baseTows[best] - tr) ? i : best, 0);
-                    if (Math.abs(baseTows[idx] - tr) <= 0.051) { 
+                    if (Math.abs(baseTows[idx] - tr) <= 0.05) { 
                         base_sinc[tr] = JSON.parse(JSON.stringify(window.MemoriaVolatil.baseRaw[baseTows[idx]]));
                         base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']; 
                     }
                 }
                 
                 display.textContent += "[PROGRESO] Extrayendo Observables DGPS (Pseudodistancia)...\n";
+                // En Pestaña 4, se usan los CRUUDOS sin truncar, igual que app.py
                 let sd_suavizada = aislarDiferenciasSimplesPPK(base_sinc, obs_r_raw);
                 if (Object.keys(sd_suavizada).length === 0) throw new Error("No hay épocas sincronizadas válidas entre la Base y este nuevo Rover.");
 
