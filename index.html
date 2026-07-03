@@ -5,7 +5,6 @@
     <title>GNSSJP PRO - Motor Geodésico Web</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
     <style>
         .console { font-family: 'Courier New', Courier, monospace; background-color: #050505; color: #00ff33; white-space: pre-wrap; }
         .tab-content { display: none; }
@@ -45,7 +44,7 @@
 
         <nav class="flex space-x-2 bg-gray-800 p-2 rounded mb-6" id="tabs-nav">
             <button onclick="switchTab(1)" id="btn-tab1" class="px-4 py-2 rounded bg-blue-600 font-bold">1. Datos Raw (Calibración)</button>
-            <button onclick="switchTab(2)" id="btn-tab2" class="px-4 py-2 rounded bg-gray-700 disabled-tab">2. Efemérides (Auto-Download)</button>
+            <button onclick="switchTab(2)" id="btn-tab2" class="px-4 py-2 rounded bg-gray-700 disabled-tab">2. Efemérides (Carga Manual)</button>
             <button onclick="switchTab(3)" id="btn-tab3" class="px-4 py-2 rounded bg-gray-700 disabled-tab">3. Calibración Exacta</button>
             <button onclick="switchTab(4)" id="btn-tab4" class="px-4 py-2 rounded bg-gray-700 disabled-tab">4. Procesar Punto</button>
         </nav>
@@ -56,22 +55,28 @@
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
-                        <input type="file" id="obs_base" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <input type="file" id="obs_base" required accept=".obs,.rnx" class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                     <div>
                         <label class="block text-sm mb-1">Archivo Rover 1 (Punto de Calibración):</label>
-                        <input type="file" id="obs_rover" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <input type="file" id="obs_rover" required accept=".obs,.rnx" class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Sincronizar Épocas Base/Calibración</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Sincronizar Épocas Base/Calibración en RAM</button>
             </form>
             <div id="console1" class="console p-4 mt-4 h-64 overflow-y-auto border border-gray-700 rounded"></div>
         </section>
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Broadcast Auto-Stream)</h2>
-            <p class="text-sm text-gray-400 mb-4">Descarga automatizada asincrónica de servidores IGS/BKG adaptada al rango horario del archivo de observación.</p>
-            <button onclick="ejecutarDescargaEfemerides()" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Descargar y Descomprimir Efemérides (.nav) en RAM</button>
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual en RAM)</h2>
+            <p class="text-sm text-gray-400 mb-4">Sube el archivo de efemérides descompreso (.nav o .rnx) obtenido previamente desde la aplicación extractora.</p>
+            <form id="form-tab2" onsubmit="procesarTab2JS(event)">
+                <div class="mb-4">
+                    <label class="block text-sm mb-1 text-blue-400 font-bold">Archivo de Efemérides (.nav):</label>
+                    <input type="file" id="nav_file" required accept=".nav,.rnx" class="w-full bg-gray-700 p-2 rounded border border-blue-500">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Cargar Efemérides a Memoria Volátil</button>
+            </form>
             <div id="console2" class="console p-4 mt-4 h-48 overflow-y-auto border border-gray-700 rounded"></div>
         </section>
 
@@ -277,84 +282,34 @@
             window.switchTab(2);
         };
 
-        // DESCARGADOR ASINCRÓNICO AUTOMÁTICO DE EFEMÉRIDES (CON MATRIZ DE REDUNDANCIA CORS)
-        window.ejecutarDescargaEfemerides = async function() {
+        // PROCESADOR DE LA TAB 2 (Carga Manual de Efemérides en RAM)
+        window.procesarTab2JS = async function(e) {
+            e.preventDefault();
             const display = document.getElementById('console2');
-            display.innerHTML = "> [SISTEMA] Iniciando Motor de Navegación Orbital Asíncrono...\n";
+            display.innerHTML = "> [SISTEMA] Leyendo archivo de efemérides en memoria RAM dinámica...\n";
             
-            if (!window.MemoriaVolatil.fechaBase) {
-                display.innerHTML += "> [ERROR FATAL] Datos temporales base ausentes en RAM. Ejecute la Pestaña 1 primero.\n"; 
+            const fileNav = document.getElementById('nav_file').files[0];
+            if (!fileNav) {
+                display.innerHTML += "> [ERROR] No se ha seleccionado ningún archivo.\n";
                 return;
             }
-            
-            const { year, month, day, hour } = window.MemoriaVolatil.fechaBase;
-            const jDate = new Date(year, month - 1, day);
-            const startYear = new Date(year, 0, 1);
-            const doy = Math.floor((jDate - startYear) / (24 * 60 * 60 * 1000)) + 1;
-            const doyStr = String(doy).padStart(3, '0');
-            
-            const prefijos = ['IGS', 'WRD', 'BKG', 'GOP'];
-            
-            // Matriz de proxies redundantes especializados en transmisión binaria cruda (Raw Stream)
-            const proxies = [
-                "https://api.allorigins.win/raw?url=",
-                "https://corsproxy.io/?",
-                "https://api.codetabs.com/v1/proxy?quest="
-            ];
-            
-            let urls = [];
-            // Construcción de malla URL
-            prefijos.forEach(p => urls.push(`https://igs.bkg.bund.de/root_ftp/IGS/BRDC/${year}/${doyStr}/BRDC00${p}_R_${year}${doyStr}0000_01D_MN.rnx.gz`));
-            let horas = [hour];
-            for(let i=hour-1; i>=0; i--) horas.push(i);
-            for(let i=hour+1; i<24; i++) horas.push(i);
-            prefijos.forEach(p => horas.forEach(h => urls.push(`https://igs.bkg.bund.de/root_ftp/IGS/BRDC/${year}/${doyStr}/BRDC00${p}_R_${year}${doyStr}${String(h).padStart(2,'0')}00_01H_MN.rnx.gz`)));
-            
-            for (let url of urls) {
-                let targetFileName = url.split('/').pop();
+
+            try {
+                window.MemoriaVolatil.navFileName = fileNav.name;
+                window.MemoriaVolatil.navText = await fileNav.text();
                 
-                for (let proxy of proxies) {
-                    try {
-                        display.innerHTML += `  [+] Intentando nodo (${proxy.split('/')[2]}): ${targetFileName}\n`;
-                        display.scrollTop = display.scrollHeight; 
-                        
-                        let response = await fetch(proxy + encodeURIComponent(url));
-                        if (!response.ok) continue;
-                        
-                        let buffer = await response.arrayBuffer();
-                        
-                        // Control de calidad: Un archivo RINEX .gz de IGS jamás pesa menos de 1KB.
-                        if (buffer.byteLength < 1000) {
-                            display.innerHTML += `  [-] Archivo corrupto o rate-limit detectado. Saltando nodo...\n`;
-                            continue;
-                        }
-                        
-                        let byteArray = new Uint8Array(buffer);
-                        
-                        display.innerHTML += `  [+] GZIP Binario capturado. Descomprimiendo en RAM vía IEEE 754...\n`;
-                        display.scrollTop = display.scrollHeight;
-                        
-                        // Extracción estructural en memoria sin tocar disco
-                        let textNav = pako.ungzip(byteArray, { to: 'string' });
-                        
-                        window.MemoriaVolatil.navText = textNav;
-                        window.MemoriaVolatil.navFileName = targetFileName.replace('.gz', '');
-                        
-                        display.innerHTML += `> [ÉXITO] Archivo de efemérides inyectado en RAM: ${window.MemoriaVolatil.navFileName}\n\n[SUCCESS]`;
-                        display.scrollTop = display.scrollHeight;
-                        
-                        // Habilitar siguientes pasos
-                        document.getElementById('btn-tab3').classList.remove('disabled-tab');
-                        document.getElementById('btn-tab4').classList.remove('disabled-tab');
-                        window.switchTab(3);
-                        return;
-                    } catch(e) { 
-                        // Fallback silencioso iterativo sobre la malla de servidores
-                    }
-                }
+                let fileSizeKB = (window.MemoriaVolatil.navText.length / 1024).toFixed(2);
+                
+                display.innerHTML += `  [-] Archivo inyectado: ${window.MemoriaVolatil.navFileName}\n`;
+                display.innerHTML += `  [-] Peso extraído en RAM: ${fileSizeKB} KB\n`;
+                display.innerHTML += "> [ÉXITO] Efemérides listas en memoria volátil pura (Sin escritura en disco).\n\n[SUCCESS]";
+                
+                document.getElementById('btn-tab3').classList.remove('disabled-tab');
+                document.getElementById('btn-tab4').classList.remove('disabled-tab');
+                window.switchTab(3);
+            } catch (err) {
+                display.innerHTML += `\n> [ERROR FATAL] Error de E/S en RAM: ${err.message}`;
             }
-            display.innerHTML += "> [ERROR CRÍTICO] Colapso de conexión perimetral IGS. Servidores no responden tras agotar la matriz de redundancia.\n";
-            display.scrollTop = display.scrollHeight;
         };
 
         // STUBS OPERATIVOS PARA LA INVERSIÓN MATRICIAL Y LOGÍSTICA DE CALIBRACIÓN
