@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GNSS Engine L1-Sinc DGPS (Opción C Total)</title>
+    <title>GNSS Engine L1-Sinc DGPS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -13,33 +13,10 @@
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
-
-    <div id="auth-container" class="flex items-center justify-center min-h-screen">
-        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md border border-gray-700">
-            <h2 class="text-2xl font-bold text-center text-green-400 mb-6">GNSSJP PRO - Acceso</h2>
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm mb-1 text-gray-300">Correo Electrónico:</label>
-                    <input type="email" id="auth-email" class="w-full bg-gray-700 p-2.5 rounded border border-gray-600 text-white focus:border-green-500 focus:outline-none">
-                </div>
-                <div>
-                    <label class="block text-sm mb-1 text-gray-300">Contraseña:</label>
-                    <input type="password" id="auth-password" class="w-full bg-gray-700 p-2.5 rounded border border-gray-600 text-white focus:border-green-500 focus:outline-none">
-                </div>
-                <div id="auth-error" class="text-red-500 text-sm hidden font-mono"></div>
-                <button onclick="ejecutarLogin()" class="w-full bg-green-600 hover:bg-green-500 py-2.5 rounded font-bold transition text-white shadow-lg mt-2">Iniciar Sesión</button>
-                <button onclick="ejecutarRegistro()" class="w-full bg-gray-700 hover:bg-gray-600 py-2 rounded text-sm transition text-gray-300">Registrar Nuevo Usuario</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="container mx-auto p-4 max-w-5xl" id="app-container" style="display: none;">
-        <header class="border-b border-gray-700 pb-4 mb-6 flex justify-between items-center">
-            <div>
-                <h1 class="text-3xl font-bold text-green-400">GNSSJP PRO - Motor Geodésico DGPS Diferencial</h1>
-                <p class="text-gray-400 text-sm">Cálculo Diferencial Pseudodistancia (RMSE Min Test) | "Dato mata relato"</p>
-            </div>
-            <button onclick="ejecutarLogout()" class="bg-red-700 hover:bg-red-600 px-4 py-2 rounded font-bold text-sm transition">Cerrar Sesión</button>
+    <div class="container mx-auto p-4 max-w-5xl">
+        <header class="border-b border-gray-700 pb-4 mb-6">
+            <h1 class="text-3xl font-bold text-green-400">GNSSJP PRO - Motor Geodésico DGPS Diferencial</h1>
+            <p class="text-gray-400 text-sm">Cálculo Diferencial Pseudodistancia (RMSE Min Test) | "Dato mata relato"</p>
         </header>
 
         <nav class="flex space-x-2 bg-gray-800 p-2 rounded mb-6" id="tabs-nav">
@@ -50,8 +27,7 @@
         </nav>
 
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Enlaces Directos de Observación (RINEX .obs)</h2>
-            <p class="text-sm text-yellow-400 mb-4">Pegue enlaces de descarga directa (Drive o Dropbox con ?dl=1) para evitar saturar su red.</p>
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
             <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
@@ -59,25 +35,24 @@
                         <input type="url" name="url_base" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                     <div>
-                        <label class="block text-sm mb-1">URL Archivo Rover 1 (Punto Calibración):</label>
+                        <label class="block text-sm mb-1">URL Archivo Rover 1 (Punto de Calibración):</label>
                         <input type="url" name="url_rover" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Verificar Integridad de Épocas</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Sincronizar Épocas Base/Calibración</button>
             </form>
             <div id="console1" class="console p-4 mt-4 h-64 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab1" onclick="descargarTextoPDF('console1', 'Informe_Sincronizacion')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Épocas PDF</button>
         </section>
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Enlace Directo)</h2>
-            <p class="text-sm text-gray-400 mb-4">Pegue el enlace de descarga directa del archivo de efemérides (.nav o .rnx) para evitar errores 413 Payload Too Large.</p>
-            <form id="form-tab2" onsubmit="submitTab2Form(event)">
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual)</h2>
+            <form id="form-tab2" onsubmit="submitForm(event, '/tab2_efemerides', 'console2', 3)">
                 <div class="mb-4">
-                    <label class="block text-sm mb-1">URL Archivo de Efemérides (.nav / .rnx):</label>
+                    <label class="block text-sm mb-1">URL Archivo de Efemérides (.nav, .rnx):</label>
                     <input type="url" name="url_nav" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Descargar y Validar Efemérides</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Procesar y Validar Efemérides</button>
             </form>
             <div id="console2" class="console p-4 mt-4 h-48 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
@@ -134,7 +109,7 @@
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <h3 class="text-blue-400 font-bold text-sm mb-2">NUEVO ARCHIVO ROVER (PUNTO DESCONOCIDO)</h3>
-                        <label class="block text-xs">URL Archivo RINEX Rover Nuevo:</label>
+                        <label class="block text-xs">URL Archivo RINEX Rover (.obs):</label>
                         <input type="url" name="url_rover_nuevo" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-blue-500">
                     </div>
                 </div>
@@ -177,63 +152,6 @@
             <button id="btn-pdf-tab4" onclick="descargarTextoPDF('console4', 'Informe_Geodesico_DGPS')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Resultados</button>
         </section>
     </div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyBAASJamPDpSKU6JZx88oLNQprgwkk3DZs",
-            authDomain: "gpsj-6790c.firebaseapp.com",
-            projectId: "gpsj-6790c",
-            storageBucket: "gpsj-6790c.firebasestorage.app",
-            messagingSenderId: "558545141519",
-            appId: "1:558545141519:web:d21e7360d54db4d84d887a",
-            measurementId: "G-3BQNVX74RS"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-
-        window.ejecutarLogin = function() {
-            const email = document.getElementById('auth-email').value;
-            const pass = document.getElementById('auth-password').value;
-            const errBox = document.getElementById('auth-error');
-            errBox.classList.add('hidden');
-
-            signInWithEmailAndPassword(auth, email, pass)
-                .catch(error => {
-                    errBox.innerText = "> Error: " + error.message;
-                    errBox.classList.remove('hidden');
-                });
-        };
-
-        window.ejecutarRegistro = function() {
-            const email = document.getElementById('auth-email').value;
-            const pass = document.getElementById('auth-password').value;
-            const errBox = document.getElementById('auth-error');
-            errBox.classList.add('hidden');
-
-            createUserWithEmailAndPassword(auth, email, pass)
-                .then(() => alert("Usuario registrado e iniciado con éxito."))
-                .catch(error => {
-                    errBox.innerText = "> Error registro: " + error.message;
-                    errBox.classList.remove('hidden');
-                });
-        };
-
-        window.ejecutarLogout = function() { signOut(auth); };
-
-        onAuthStateChanged(auth, user => {
-            if (user) {
-                document.getElementById('auth-container').style.display = 'none';
-                document.getElementById('app-container').style.display = 'block';
-            } else {
-                document.getElementById('app-container').style.display = 'none';
-                document.getElementById('auth-container').style.display = 'flex';
-            }
-        });
-    </script>
 
     <script>
         window.gnssState = {
@@ -298,6 +216,7 @@
                         if (consoleId === 'console3') document.getElementById('btn-pdf-tab3')?.classList.remove('hidden');
                         if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.remove('hidden');
                         if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.remove('hidden');
+                        if (consoleId === 'console2') document.getElementById('btn-pdf-tab2')?.classList.remove('hidden');
                         
                         if (url === '/tab1_homogenizar' && fullOutput.includes('[SUCCESS]')) {
                             const uBase = form.querySelector('input[name="url_base"]').value;
@@ -308,10 +227,17 @@
                             window.gnssState.url_rover = uRover;
                         }
 
+                        if (url === '/tab2_efemerides' && fullOutput.includes('[SUCCESS]')) {
+                            const uNav = form.querySelector('input[name="url_nav"]').value;
+                            localStorage.setItem('url_nav', uNav);
+                            window.gnssState.url_nav = uNav;
+                        }
+
                         if (url === '/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
                             document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
                             document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
                             document.querySelector('#form-tab4 input[name="utm_cota"]').value = document.querySelector('#form-tab3 input[name="utm_cota"]').value;
+                            document.querySelector('#form-tab4 input[name="utm_huso"]').value = document.querySelector('#form-tab3 input[name="utm_huso"]').value;
                             document.querySelector('#form-tab4 select[name="utm_hemisferio"]').value = document.querySelector('#form-tab3 select[name="utm_hemisferio"]').value;
 
                             const m_mask = fullOutput.match(/Máscara Elevación[^:]*:\s*([0-9.-]+)/);
@@ -326,40 +252,6 @@
                             if (m_eh && m_eh[1]) { document.querySelector('#form-tab4 input[name="err_hor_max"]').value = m_eh[1]; document.querySelector('#form-tab3 input[name="err_hor_max"]').value = m_eh[1]; }
                             if (m_ev && m_ev[1]) { document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1]; document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1]; }
                         }
-                    }
-                }
-            } catch (err) { display.innerHTML += "\n[ERROR] " + err.message; }
-        }
-
-        async function submitTab2Form(e) {
-            e.preventDefault();
-            const form = e.target;
-            const data = new FormData(form);
-            const display = document.getElementById('console2');
-            display.innerHTML = "> Ejecutando Bypass de URL para Efemérides...\n";
-            document.getElementById('btn-pdf-tab2')?.classList.add('hidden');
-
-            let fullOutput = "";
-            try {
-                const response = await fetch('/tab2_efemerides', { method: 'POST', body: data });
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    let text = decoder.decode(value);
-                    fullOutput += text;
-                    display.innerHTML = fullOutput;
-                    display.scrollTop = display.scrollHeight;
-                    
-                    if (text.includes('[SUCCESS]')) {
-                        document.getElementById('btn-tab3').classList.remove('disabled-tab');
-                        document.getElementById('btn-tab4').classList.remove('disabled-tab');
-                        document.getElementById('btn-pdf-tab2').classList.remove('hidden');
-                        
-                        const uNav = form.querySelector('input[name="url_nav"]').value;
-                        localStorage.setItem('url_nav', uNav);
-                        window.gnssState.url_nav = uNav;
                     }
                 }
             } catch (err) { display.innerHTML += "\n[ERROR] " + err.message; }
