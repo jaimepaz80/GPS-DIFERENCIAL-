@@ -2,7 +2,6 @@ import os
 import math
 import datetime
 import urllib.request
-import gzip
 import shutil
 import ssl
 import re
@@ -185,47 +184,6 @@ def parse_rinex_nav_real(path):
 def seleccionar_efemeride_optima(eph_list, t_target):
     if not eph_list: return None
     return min(eph_list, key=lambda x: abs(x.get('Toe', 0) - t_target))
-
-def obtener_fecha_obs(filepath):
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            if line.startswith('>'):
-                partes = line[1:].strip().split()
-                if len(partes) >= 6: 
-                    try:
-                        year = int(partes[0])
-                        if year < 100: year += 2000
-                        return year, int(partes[1]), int(partes[2]), int(partes[3]), int(partes[4]), float(partes[5])
-                    except: pass
-    return None
-
-def descargar_efemerides_brdc_stream(year, month, day, hour):
-    dt = datetime.datetime(year, month, day)
-    doy = dt.timetuple().tm_yday
-    nav_descargado = os.path.join(UPLOAD_FOLDER, f"auto_nav_{year}_{doy:03d}.nav")
-    if os.path.exists(nav_descargado): 
-        yield ("SUCCESS", nav_descargado)
-        return
-    prefijos = ['IGS', 'WRD', 'BKG', 'GOP']
-    urls = [f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00{p}_R_{year}{doy:03d}0000_01D_MN.rnx.gz" for p in prefijos]
-    horas = [hour] + [h for h in range(hour-1, -1, -1)] + [h for h in range(hour+1, 24)]
-    for p in prefijos:
-        for h in horas: 
-            urls.append(f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00{p}_R_{year}{doy:03d}{h:02d}00_01H_MN.rnx.gz")
-    ctx = ssl.create_default_context()
-    for url in urls:
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, context=ctx, timeout=10) as res:
-                yield ("INFO", f"> Descargando comprimido: {url.split('/')[-1]}...\n")
-                with open(nav_descargado + '.gz', 'wb') as f: f.write(res.read())
-                yield ("INFO", "> Descomprimiendo GZIP y construyendo .nav local...\n")
-                with gzip.open(nav_descargado + '.gz', 'rb') as f_in, open(nav_descargado, 'wb') as f_out: 
-                    shutil.copyfileobj(f_in, f_out)
-                yield ("SUCCESS", nav_descargado)
-                return
-        except Exception: pass
-    yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
 
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
@@ -778,35 +736,19 @@ def tab1_homogenizar():
 
 @app.route('/tab2_efemerides', methods=['POST'])
 def tab2_efemerides():
-    url_b = request.form.get('url_base')
-    if not url_b: return Response("> [ERROR CRÍTICO] URL de Base faltante.\n", mimetype='text/plain')
+    url_nav = request.form.get('url_nav')
+    if not url_nav: return Response("> [ERROR CRÍTICO] URL de Efemérides faltante.\n", mimetype='text/plain')
     
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
+    nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
 
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital e Ionosférico...\n"
-            descargar_desde_nube(url_b, p_b_raw)
-            
-            ft = obtener_fecha_obs(p_b_raw)
-            if not ft: yield "> [ERROR FATAL] Imposible extraer la fecha del archivo base.\n"; return
-            
-            nav_p, descarga_exitosa = None, False
-            for tipo, log in descargar_efemerides_brdc_stream(ft[0], ft[1], ft[2], ft[3]):
-                if tipo == "INFO": yield f"  {log}"
-                elif tipo == "SUCCESS": nav_p = log; descarga_exitosa = True
-                elif tipo == "ERROR": yield f"> [ERROR CRÍTICO RED] {log}\n"; return 
-                
-            if descarga_exitosa and nav_p:
-                with open(nav_p, 'r', encoding='utf-8') as f:
-                    nav_content = f.read()
-                
-                yield f"> [ÉXITO] Archivo de efemérides descargado exitosamente.\n"
-                yield "\n---NAV_DATA_START---\n"
-                yield nav_content
-                yield "\n---NAV_DATA_END---\n[SUCCESS]"
-            else: yield "> [ERROR] No se logró descargar ni construir el archivo local.\n"
+            yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital...\n"
+            yield "> [SISTEMA] Conectando con enlace de Efemérides en la nube...\n"
+            descargar_desde_nube(url_nav, nav_path)
+            yield f"> [ÉXITO] Archivo de efemérides (.nav) descargado y vinculado exitosamente.\n"
+            yield "\n[SUCCESS]"
         except Exception as e: yield f"\n> [ERROR GENERAL] Excepción capturada: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
@@ -824,23 +766,22 @@ def tab3_calibrar():
 
     url_b = request.form.get('url_base')
     url_r = request.form.get('url_rover')
-    navf = request.files.get('nav_file')
+    url_nav = request.form.get('url_nav')
     
-    if not url_b or not url_r or not navf:
-        return Response("> [ERROR FATAL] Faltan URLs o archivo de Efemérides.\n", mimetype='text/plain')
+    if not url_b or not url_r or not url_nav:
+        return Response("> [ERROR FATAL] Faltan URLs Base, Rover o Efemérides.\n", mimetype='text/plain')
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
     nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-    
-    navf.save(nav_path)
 
     def procesar():
         try:
-            yield "> [SISTEMA] Descargando malla desde la nube a memoria efímera...\n"
+            yield "> [SISTEMA] Descargando malla completa desde la nube a memoria efímera...\n"
             descargar_desde_nube(url_b, p_b_raw)
             descargar_desde_nube(url_r, p_r_raw)
+            descargar_desde_nube(url_nav, nav_path)
 
             yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)....\n"
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
@@ -1002,17 +943,16 @@ def tab4_procesar():
 
     url_b = request.form.get('url_base')
     url_r_nuevo = request.form.get('url_rover_nuevo')
-    navf = request.files.get('nav_file')
+    url_nav = request.form.get('url_nav')
     
-    if not url_r_nuevo or not url_b or not navf: 
-        return Response("> [ERROR] Faltan URLs o Efemérides para el proceso final.\n", mimetype='text/plain')
+    if not url_r_nuevo or not url_b or not url_nav: 
+        return Response("> [ERROR] Faltan URLs Base, Rover Nuevo o Efemérides para el proceso final.\n", mimetype='text/plain')
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo_raw.obs')
     nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
     
-    navf.save(nav_path)
     rf_nuevo_filename = f"rover_nuevo_{url_r_nuevo[-8:]}.obs"
 
     def procesar():
@@ -1020,6 +960,7 @@ def tab4_procesar():
             yield "> [SISTEMA] Interceptando URLs y descargando en túnel cerrado...\n"
             descargar_desde_nube(url_b, p_b_raw)
             descargar_desde_nube(url_r_nuevo, p_r_nuevo)
+            descargar_desde_nube(url_nav, nav_path)
 
             yield "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n"
             if utm_e == 0.0 or utm_n == 0.0: 
@@ -1082,7 +1023,7 @@ def tab4_procesar():
                 'ez': std_z, 'fix_r': fix_ratio,
                 'base_file': "Archivo_Nube_Base",
                 'rover_file': rf_nuevo_filename,
-                'nav_file': "auto_nav.nav",
+                'nav_file': "Enlace_Nube_Efemérides",
                 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
                 'r_n_calc': nf, 'r_e_calc': ef, 'r_z_calc': zf - h_r
             }
