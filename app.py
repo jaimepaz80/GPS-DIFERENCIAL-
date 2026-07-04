@@ -11,7 +11,7 @@ from flask import Flask, request, send_file, Response, jsonify
 
 app = Flask(__name__)
 
-# --- RUTA DINÁMICA DE TRABAJO EN ENTORNO SERVERLESS VERCEL ---
+# --- RUTA DINÁMICA DE TRABAJO (VERCEL) ---
 UPLOAD_FOLDER = '/tmp'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -226,18 +226,14 @@ def invert_matrix_nxn(M):
             for k in range(i + 1, n):
                 if abs(A[k][i]) > abs(A[max_k][i]):
                     max_k = k
-            
             if max_k != i:
                 A[i], A[max_k] = A[max_k], A[i]
                 I[i], I[max_k] = I[max_k], I[i]
-            
             pivot = A[i][i]
             if abs(pivot) < 1e-15: return None 
-            
             for j in range(n):
                 A[i][j] /= pivot
                 I[i][j] /= pivot
-                
             for k in range(n):
                 if k == i: continue
                 factor = A[k][i]
@@ -862,6 +858,7 @@ def tab3_calibrar():
                     
                     for cp in set(cp_grid):
                         for ca in set(ca_grid):
+                            # INYECTAMOS LOS ERRORES EXACTOS CALCULADOS EN LA FASE 1
                             res = estadistica_desacoplada(coords, cp, ca, best_eh, best_ev)
                             if res[0] is None: continue
                             nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
@@ -999,12 +996,15 @@ def tab4_procesar():
                 'nf': nf, 'ef': ef, 'zf': zf - h_r, 
                 'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
                 'ez': std_z, 'fix_r': fix_ratio,
+                'base_file': "URL_Base",
+                'rover_file': "URL_Rover_Nuevo",
+                'nav_file': "URL_Nav",
                 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
                 'r_n_calc': nf, 'r_e_calc': ef, 'r_z_calc': zf - h_r
             }
             
             yield "[PROGRESO] Ajuste DGPS Finalizado.\n"
-            yield generar_informe_ascii(p_dict)
+            yield generar_informe_ascii("MEDICION", p_dict)
             yield "\n[SUCCESS]"
         except Exception as e: yield f"\n> [ERROR FATAL] {str(e)}"
     return Response(procesar(), mimetype='text/plain')
