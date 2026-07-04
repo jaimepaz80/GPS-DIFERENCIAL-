@@ -13,12 +13,23 @@ app = Flask(__name__)
 
 # --- RUTA DINÁMICA DE TRABAJO EN ENTORNO SERVERLESS VERCEL ---
 UPLOAD_FOLDER = '/tmp'
-REPORT_FOLDER = '/tmp'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # --- CONSTANTES ---
 C_LIGHT = 299792458.0
 OMEGA_E = 7.2921151467e-5
 MU = 3.986005e14
+
+def adaptar_url_nube(url):
+    """Convierte links comunes a links de descarga directa (Bypass)"""
+    if "dropbox.com" in url and "?dl=0" in url:
+        return url.replace("?dl=0", "?dl=1")
+    if "drive.google.com/file/d/" in url:
+        try:
+            file_id = url.split("/d/")[1].split("/")[0]
+            return f"https://drive.google.com/uc?export=download&id={file_id}"
+        except: pass
+    return url
 
 def obtener_lambda_dinamico(sys_char, freq_band):
     if freq_band == 'L5': return C_LIGHT / 1176.45e6
@@ -184,19 +195,6 @@ def seleccionar_efemeride_optima(eph_list, t_target):
     if not eph_list: return None
     return min(eph_list, key=lambda x: abs(x.get('Toe', 0) - t_target))
 
-def obtener_fecha_obs(filepath):
-    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            if line.startswith('>'):
-                partes = line[1:].strip().split()
-                if len(partes) >= 6: 
-                    try:
-                        year = int(partes[0])
-                        if year < 100: year += 2000
-                        return year, int(partes[1]), int(partes[2]), int(partes[3]), int(partes[4]), float(partes[5])
-                    except: pass
-    return None
-
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
 # =====================================================================
@@ -328,13 +326,13 @@ def calcular_topocentricas(xs, ys, zs, X_usr, Y_usr, Z_usr):
 
 def calcular_klobuchar(lat_deg, lon_deg, el_deg, az_deg, tow, alpha, beta):
     if not any(alpha) and not any(beta): return 0.0
-    phi_u, lam_u = lat_deg / 180.0, lon_deg / 180.0
+    phi_u, lat_deg = lat_deg / 180.0, lon_deg / 180.0
     E, A = el_deg / 180.0, az_deg / 180.0
     psi = 0.0137 / (E + 0.11) - 0.022
     phi_i = phi_u + psi * math.cos(A * math.pi)
     if phi_i > 0.416: phi_i = 0.416
     elif phi_i < -0.416: phi_i = -0.416
-    lam_i = lam_u + (psi * math.sin(A * math.pi)) / math.cos(phi_i * math.pi)
+    lam_i = lat_deg + (psi * math.sin(A * math.pi)) / math.cos(phi_i * math.pi)
     phi_m = phi_i + 0.064 * math.cos((lam_i - 1.617) * math.pi)
     t = 43200.0 * lam_i + tow
     t = t % 86400.0
@@ -595,7 +593,7 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
 # =====================================================================
 # GENERADORES DE INFORMES (FRONTEND)
 # =====================================================================
-def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, rover_raw, rover_sinc):
+def generar_informe_homogeneizacion_detallado(url_base, url_rover, base_raw, rover_raw, rover_sinc):
     def get_stats(obs):
         c = {'G':0, 'E':0, 'C':0, 'R':0, 'S':0, 'J':0}
         tiempos = sorted(list(obs.keys()))
@@ -619,11 +617,13 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
 ========================================================================
     AUDITORÍA FORENSE DE EMPAREJAMIENTO DE ÉPOCAS
 ========================================================================
-[1] PARÁMETROS DE CONTROL (BASE) : {base_name}
+[1] PARÁMETROS DE CONTROL (BASE)
+  [-] Origen de Red             : Descarga Bypass Exitosa
   [-] Épocas Crudas Registradas : {eb}
   [-] Ventana de Observación    : {b_ini[3]:02d}:{b_ini[4]:02d}:{b_ini[5]:05.2f} - {b_fin[3]:02d}:{b_fin[4]:02d}:{b_fin[5]:05.2f}
 
-[2] PARÁMETROS DEL MÓVIL (ROVER) : {rover_name}
+[2] PARÁMETROS DEL MÓVIL (ROVER)
+  [-] Origen de Red             : Descarga Bypass Exitosa
   [-] Épocas Crudas Registradas : {er}
   [-] Ventana de Observación    : {r_ini[3]:02d}:{r_ini[4]:02d}:{r_ini[5]:05.2f} - {r_fin[3]:02d}:{r_fin[4]:02d}:{r_fin[5]:05.2f}
 
@@ -634,7 +634,7 @@ def generar_informe_homogeneizacion_detallado(base_name, rover_name, base_raw, r
 """
     return informe
 
-def generar_informe_ascii(tipo, p_dict):
+def generar_informe_ascii(p_dict):
     estado_sol = 'FLOAT (DGPS)'
     informe = f"""
 ========================================================================
@@ -653,9 +653,9 @@ def generar_informe_ascii(tipo, p_dict):
 
 [1] TRAZABILIDAD DEL PROYECTO Y ARCHIVOS
 ------------------------------------------------------------------------
-  [-] Archivo Control (Base) : {p_dict['base_file']}
-  [-] Archivo Móvil (Rover)  : {p_dict['rover_file']}
-  [-] Archivo Efemérides     : {p_dict['nav_file']}
+  [-] Archivo Control (Base) : Bypass URL Directa
+  [-] Archivo Móvil (Rover)  : Bypass URL Directa
+  [-] Archivo Efemérides     : Carga Estructural en Memoria
 
 [2] ESTRATEGIA MATEMÁTICA Y ESTADÍSTICA
 ------------------------------------------------------------------------
@@ -684,24 +684,31 @@ def generar_informe_ascii(tipo, p_dict):
     return informe
 
 # =====================================================================
-# RUTAS FLASK (FLUJO ARQUITECTÓNICO SIN PERSISTENCIA EN DISCO)
+# RUTAS FLASK (FLUJO ARQUITECTÓNICO OPCIÓN C: BYPASS SERVER-TO-SERVER)
 # =====================================================================
 @app.route('/')
 def index(): return send_file('index.html')
 
 @app.route('/tab1_homogenizar', methods=['POST'])
 def tab1_homogenizar():
-    bf = request.files.get('obs_base')
-    rf = request.files.get('obs_rover')
-    if not bf or not rf: return Response("> [ERROR CRÍTICO] Archivos físicos faltantes.\n", mimetype='text/plain')
-    
-    p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
-    p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
-    bf.save(p_b_raw); rf.save(p_r_raw)
+    url_base = request.form.get('url_base')
+    url_rover = request.form.get('url_rover')
+    if not url_base or not url_rover: return Response("> [ERROR CRÍTICO] URLs de archivos RINEX faltantes.\n", mimetype='text/plain')
 
     def procesar():
         try:
-            yield f"> [SISTEMA] Iniciando Etapa 1: Emparejamiento Base Pivote y Rover de Calibración...\n"
+            yield f"> [SISTEMA] Iniciando Etapa 1: Emparejamiento Serverless (Descarga Directa)...\n"
+            p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
+            p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
+            
+            req_b = urllib.request.Request(adaptar_url_nube(url_base), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_b, timeout=30) as res, open(p_b_raw, 'wb') as f: shutil.copyfileobj(res, f)
+            yield f"> [PROGRESO] RINEX Base descargado exitosamente.\n"
+            
+            req_r = urllib.request.Request(adaptar_url_nube(url_rover), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_r, timeout=30) as res, open(p_r_raw, 'wb') as f: shutil.copyfileobj(res, f)
+            yield f"> [PROGRESO] RINEX Rover descargado exitosamente.\n"
+
             base_raw_dict = parse_rinex_obs_completo(p_b_raw)
             rover_raw_dict = parse_rinex_obs_completo(p_r_raw)
             base_sinc, rover_sinc = {}, {}
@@ -717,26 +724,9 @@ def tab1_homogenizar():
                     rover_sinc[tr] = rover_raw_dict[tr]
             
             if not base_sinc: yield "\n> [ERROR FATAL] Cero épocas en común. Revisar rango horario."; return
-            p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
-            p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
-            generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
-            generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
             
-            with open(p_b_raw, 'r', encoding='utf-8', errors='ignore') as f: b_raw_cont = f.read()
-            with open(p_b_h, 'r', encoding='utf-8', errors='ignore') as f: b_h_cont = f.read()
-            with open(p_r_h, 'r', encoding='utf-8', errors='ignore') as f: r_h_cont = f.read()
-            
-            yield generar_informe_homogeneizacion_detallado(bf.filename, rf.filename, base_raw_dict, rover_raw_dict, rover_sinc)
+            yield generar_informe_homogeneizacion_detallado(url_base, url_rover, base_raw_dict, rover_raw_dict, rover_sinc)
             yield "\n[SUCCESS]\n"
-            
-            data_payload = {
-                'base_raw_content': b_raw_cont,
-                'base_calib_homo_content': b_h_cont,
-                'rover_calib_homo_content': r_h_cont,
-                'name_base_raw': bf.filename,
-                'name_rover_calib_raw': rf.filename
-            }
-            yield f"//DATA_START//{json.dumps(data_payload)}"
         except Exception as e: yield f"\n> [ERROR] Falla estructural: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
@@ -761,8 +751,7 @@ def tab2_efemerides():
             yield f"> [ÉXITO] Archivo de efemérides cargado y validado correctamente.\n\n[SUCCESS]\n"
             
             data_payload = {
-                'nav_content': nav_cont,
-                'name_nav_file': nf.filename
+                'nav_content': nav_cont
             }
             yield f"//DATA_START//{json.dumps(data_payload)}"
         except Exception as e: yield f"\n> [ERROR GENERAL] Excepción capturada: {str(e)}"
@@ -780,9 +769,9 @@ def tab3_calibrar():
     utm_e_r = safe_f(request.form.get('utm_este_r'), 0.0)
     utm_c_r = safe_f(request.form.get('utm_cota_r'), 0.0)
 
+    url_base = request.form.get('url_base')
+    url_rover = request.form.get('url_rover')
     nav_content = request.form.get('nav_content', '')
-    base_calib_homo_content = request.form.get('base_calib_homo_content', '')
-    rover_calib_homo_content = request.form.get('rover_calib_homo_content', '')
 
     def procesar():
         try:
@@ -790,23 +779,35 @@ def tab3_calibrar():
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
                 yield "> [ERROR] Coordenadas Base y Rover (Calibración) son requeridas.\n"; return
             
-            if not nav_content or not base_calib_homo_content or not rover_calib_homo_content: 
-                yield "> [ERROR FATAL] Faltan archivos RINEX o Efemérides en el estado del cliente.\n"; return
-
+            if not url_base or not url_rover or not nav_content:
+                yield "> [ERROR FATAL] Faltan URLs o archivo de efemérides en memoria.\n"; return
+                
             nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-            p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
-            p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
-
             with open(nav_path, 'w', encoding='utf-8') as f: f.write(nav_content)
-            with open(p_b_h, 'w', encoding='utf-8') as f: f.write(base_calib_homo_content)
-            with open(p_r_h, 'w', encoding='utf-8') as f: f.write(rover_calib_homo_content)
-
-            obs_b_raw = parse_rinex_obs_completo(p_b_h)
-            obs_r_raw = parse_rinex_obs_completo(p_r_h)
             nav = parse_rinex_nav_real(nav_path)
+
+            yield "[PROGRESO] Interceptando ficheros masivos desde la Nube...\n"
+            p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
+            p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calib.obs')
             
-            yield "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n"
-            sd_suavizada = aislar_diferencias_simples_ppk(obs_b_raw, obs_r_raw)
+            req_b = urllib.request.Request(adaptar_url_nube(url_base), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_b, timeout=30) as res, open(p_b_raw, 'wb') as f: shutil.copyfileobj(res, f)
+            req_r = urllib.request.Request(adaptar_url_nube(url_rover), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_r, timeout=30) as res, open(p_r_raw, 'wb') as f: shutil.copyfileobj(res, f)
+            
+            obs_b_raw = parse_rinex_obs_completo(p_b_raw)
+            obs_r_raw = parse_rinex_obs_completo(p_r_raw)
+            
+            yield "[PROGRESO] Ensamblando Malla Temporal de Calibración Dinámica...\n"
+            base_sinc, rover_sinc = {}, {}
+            for tr in sorted(list(obs_r_raw.keys())):
+                base_interp = interpolar_base_a_rover(obs_b_raw, tr)
+                if base_interp:
+                    base_sinc[tr] = base_interp
+                    base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']
+                    rover_sinc[tr] = obs_r_raw[tr]
+
+            sd_suavizada = aislar_diferencias_simples_ppk(base_sinc, rover_sinc)
             if not sd_suavizada:
                 yield "> [ERROR] No hay épocas sincronizadas válidas.\n"
                 return
@@ -940,41 +941,34 @@ def tab4_procesar():
     err_hor_max = safe_f(request.form.get('err_hor_max'), 0.5)
     err_ver_max = safe_f(request.form.get('err_ver_max'), 0.5)
 
-    rf_nuevo = request.files.get('obs_rover_nuevo')
-    
-    if not rf_nuevo or rf_nuevo.filename == '': 
-        return Response("> [ERROR] Falta cargar el nuevo archivo RINEX Rover (Punto Desconocido).\n", mimetype='text/plain')
-
+    url_base = request.form.get('url_base')
+    url_rover_nuevo = request.form.get('url_rover_nuevo')
     nav_content = request.form.get('nav_content', '')
-    base_raw_content = request.form.get('base_raw_content', '')
-    name_base_raw = request.form.get('name_base_raw', 'base.obs')
-    name_nav_file = request.form.get('name_nav_file', 'auto_nav.nav')
-
-    p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo_raw.obs')
-    try:
-        rf_nuevo.save(p_r_nuevo)
-        rf_nuevo_filename = rf_nuevo.filename
-    except Exception as e:
-        return Response(f"> [ERROR FATAL] Fallo al escribir el archivo subido en el disco: {str(e)}\n", mimetype='text/plain')
 
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n"
+            yield "> [SISTEMA] Iniciando Procesamiento DGPS Serverless (Opción C)...\n"
             if utm_e == 0.0 or utm_n == 0.0: 
                 yield "> [ERROR] Coordenadas Base incompletas.\n"; return
             
-            if not nav_content or not base_raw_content: 
-                yield "> [ERROR FATAL] Falta archivo RINEX Base original o Efemérides en el estado del cliente.\n"; return
+            if not url_base or not url_rover_nuevo or not nav_content: 
+                yield "> [ERROR FATAL] Faltan URLs o archivo de efemérides en memoria.\n"; return
 
             nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-            p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
-
             with open(nav_path, 'w', encoding='utf-8') as f: f.write(nav_content)
-            with open(p_b_raw, 'w', encoding='utf-8') as f: f.write(base_raw_content)
-
-            obs_b_raw = parse_rinex_obs_completo(p_b_raw)
-            obs_r_raw = parse_rinex_obs_completo(p_r_nuevo) 
             nav = parse_rinex_nav_real(nav_path)
+            
+            yield "[PROGRESO] Interceptando mallas RINEX de Base y Punto Desconocido...\n"
+            p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
+            p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo.obs')
+            
+            req_b = urllib.request.Request(adaptar_url_nube(url_base), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_b, timeout=30) as res, open(p_b_raw, 'wb') as f: shutil.copyfileobj(res, f)
+            req_r = urllib.request.Request(adaptar_url_nube(url_rover_nuevo), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_r, timeout=30) as res, open(p_r_nuevo, 'wb') as f: shutil.copyfileobj(res, f)
+            
+            obs_b_raw = parse_rinex_obs_completo(p_b_raw)
+            obs_r_raw = parse_rinex_obs_completo(p_r_nuevo)
             
             yield "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n"
             rover_tows = sorted(list(obs_r_raw.keys()))
@@ -1027,15 +1021,12 @@ def tab4_procesar():
                 'nf': nf, 'ef': ef, 'zf': zf - h_r, 
                 'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
                 'ez': std_z, 'fix_r': fix_ratio,
-                'base_file': name_base_raw,
-                'rover_file': rf_nuevo_filename,
-                'nav_file': name_nav_file,
                 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
                 'r_n_calc': nf, 'r_e_calc': ef, 'r_z_calc': zf - h_r
             }
             
             yield "[PROGRESO] Ajuste DGPS Finalizado.\n"
-            yield generar_informe_ascii("MEDICION", p_dict)
+            yield generar_informe_ascii(p_dict)
             yield "\n[SUCCESS]"
         except Exception as e: yield f"\n> [ERROR FATAL] {str(e)}"
     return Response(procesar(), mimetype='text/plain')
