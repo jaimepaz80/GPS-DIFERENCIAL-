@@ -21,7 +21,6 @@ OMEGA_E = 7.2921151467e-5
 MU = 3.986005e14
 
 def adaptar_url_nube(url):
-    """Convierte links comunes a links de descarga directa (Bypass Vercel)"""
     if "dropbox.com" in url and "?dl=0" in url:
         return url.replace("?dl=0", "?dl=1")
     if "drive.google.com/file/d/" in url:
@@ -195,9 +194,6 @@ def seleccionar_efemeride_optima(eph_list, t_target):
     if not eph_list: return None
     return min(eph_list, key=lambda x: abs(x.get('Toe', 0) - t_target))
 
-# =====================================================================
-# MOTOR ALGEBRAICO N x N
-# =====================================================================
 def transpose_matrix(M):
     if not M or not M[0]: return []
     try:
@@ -229,18 +225,14 @@ def invert_matrix_nxn(M):
             for k in range(i + 1, n):
                 if abs(A[k][i]) > abs(A[max_k][i]):
                     max_k = k
-            
             if max_k != i:
                 A[i], A[max_k] = A[max_k], A[i]
                 I[i], I[max_k] = I[max_k], I[i]
-            
             pivot = A[i][i]
             if abs(pivot) < 1e-15: return None 
-            
             for j in range(n):
                 A[i][j] /= pivot
                 I[i][j] /= pivot
-                
             for k in range(n):
                 if k == i: continue
                 factor = A[k][i]
@@ -251,9 +243,6 @@ def invert_matrix_nxn(M):
     except IndexError:
         return None
 
-# =====================================================================
-# MODELOS GEODÉSICOS
-# =====================================================================
 def calcular_saastamoinen(lat_deg, alt, elev_deg):
     if elev_deg < 5.0: elev_deg = 5.0
     lat_rad, elev_rad = max(math.radians(lat_deg), -math.pi/2), math.radians(elev_deg)
@@ -373,9 +362,6 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     theta = omega_e_sys * tau_vuelo
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
 
-# =====================================================================
-# EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL ORIGINAL LITERAl)
-# =====================================================================
 def aislar_diferencias_simples_ppk(obs_b, obs_r):
     sd_suavizada = {}
     for tow in sorted(list(obs_r.keys())):
@@ -546,9 +532,6 @@ def calcular_dd_ppk_lambda_epoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle):
     except Exception as e:
         return None, f"FAILED_EXCEPTION:_{str(e)}"
 
-# =====================================================================
-# ESTADÍSTICAS Y FILTRADO VINCULANTE (HARD FILTER)
-# =====================================================================
 def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max):
     if not coordenadas: return None, None, None, 0, 0, 0, 0, 0.0
     
@@ -590,9 +573,6 @@ def estadistica_desacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err
     fix_ratio = (len(f_v) / len(valid_coords)) * 100
     return sum(N_f)/max(1, len(N_f)), sum(E_f)/max(1, len(E_f)), sum(Z_f)/max(1, len(Z_f)), N_s, E_s, Z_s, min(len(N_f), len(E_f), len(Z_f)), fix_ratio
 
-# =====================================================================
-# GENERADORES DE INFORMES (FRONTEND)
-# =====================================================================
 def generar_informe_homogeneizacion_detallado(url_base, url_rover, base_raw, rover_raw, rover_sinc):
     def get_stats(obs):
         c = {'G':0, 'E':0, 'C':0, 'R':0, 'S':0, 'J':0}
@@ -683,9 +663,6 @@ def generar_informe_ascii(p_dict):
 """
     return informe
 
-# =====================================================================
-# RUTAS FLASK (FLUJO ARQUITECTÓNICO OPCIÓN C: BYPASS SERVER-TO-SERVER)
-# =====================================================================
 @app.route('/')
 def index(): return send_file('index.html')
 
@@ -693,21 +670,19 @@ def index(): return send_file('index.html')
 def tab1_homogenizar():
     url_base = request.form.get('url_base')
     url_rover = request.form.get('url_rover')
-    if not url_base or not url_rover: return Response("> [ERROR CRÍTICO] URLs de archivos RINEX faltantes.\n", mimetype='text/plain')
+    if not url_base or not url_rover: return Response("> [ERROR CRÍTICO] URLs faltantes.\n", mimetype='text/plain')
 
     def procesar():
         try:
-            yield f"> [SISTEMA] Iniciando Etapa 1: Emparejamiento Serverless (Descarga Directa)...\n"
+            yield f"> [SISTEMA] Iniciando Etapa 1: Emparejamiento Serverless...\n"
             p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
             p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
             
             req_b = urllib.request.Request(adaptar_url_nube(url_base), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_b, timeout=30) as res, open(p_b_raw, 'wb') as f: shutil.copyfileobj(res, f)
-            yield f"> [PROGRESO] RINEX Base descargado exitosamente.\n"
             
             req_r = urllib.request.Request(adaptar_url_nube(url_rover), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_r, timeout=30) as res, open(p_r_raw, 'wb') as f: shutil.copyfileobj(res, f)
-            yield f"> [PROGRESO] RINEX Rover descargado exitosamente.\n"
 
             base_raw_dict = parse_rinex_obs_completo(p_b_raw)
             rover_raw_dict = parse_rinex_obs_completo(p_r_raw)
@@ -723,34 +698,27 @@ def tab1_homogenizar():
                     base_sinc[tr]['_meta'] = rover_raw_dict[tr]['_meta']
                     rover_sinc[tr] = rover_raw_dict[tr]
             
-            if not base_sinc: yield "\n> [ERROR FATAL] Cero épocas en común. Revisar rango horario."; return
+            if not base_sinc: yield "\n> [ERROR FATAL] Cero épocas en común."; return
             
             yield generar_informe_homogeneizacion_detallado(url_base, url_rover, base_raw_dict, rover_raw_dict, rover_sinc)
             yield "\n[SUCCESS]\n"
-        except Exception as e: yield f"\n> [ERROR] Falla estructural: {str(e)}"
+        except Exception as e: yield f"\n> [ERROR] Falla: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
 @app.route('/tab2_efemerides', methods=['POST'])
 def tab2_efemerides():
     url_nav = request.form.get('url_nav')
-    if not url_nav: return Response("> [ERROR CRÍTICO] URL de efemérides faltante.\n", mimetype='text/plain')
-
+    if not url_nav: return Response("> [ERROR] URL faltante.\n", mimetype='text/plain')
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital (Descarga Serverless)...\n"
+            yield "> [SISTEMA] Iniciando Etapa 2...\n"
             nav_p = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-            
-            req_nav = urllib.request.Request(adaptar_url_nube(url_nav), headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req_nav, timeout=45) as res, open(nav_p, 'wb') as f: shutil.copyfileobj(res, f)
-            yield f"> [PROGRESO] Archivo de efemérides descargado exitosamente. Validando matriz...\n"
-            
+            req_n = urllib.request.Request(adaptar_url_nube(url_nav), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_n, timeout=45) as res, open(nav_p, 'wb') as f: shutil.copyfileobj(res, f)
             nav_data = parse_rinex_nav_real(nav_p)
-            if not nav_data or len(nav_data) <= 1:
-                yield "> [ERROR] No se pudieron extraer efemérides válidas del archivo.\n"
-                return
-            
-            yield f"> [ÉXITO] Archivo de efemérides estructuralmente válido.\n\n[SUCCESS]\n"
-        except Exception as e: yield f"\n> [ERROR GENERAL] Excepción capturada: {str(e)}"
+            if not nav_data or len(nav_data) <= 1: yield "> [ERROR] Inválido.\n"; return
+            yield "> [ÉXITO] Validado.\n\n[SUCCESS]\n"
+        except Exception as e: yield f"\n> [ERROR] {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
 @app.route('/tab3_calibrar', methods=['POST'])
@@ -775,10 +743,6 @@ def tab3_calibrar():
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
                 yield "> [ERROR] Coordenadas Base y Rover (Calibración) son requeridas.\n"; return
             
-            if not url_base or not url_rover or not url_nav:
-                yield "> [ERROR FATAL] Faltan URLs base, rover o efemérides en el estado.\n"; return
-                
-            yield "[PROGRESO] Interceptando ficheros masivos desde la Nube (Base, Rover, Nav)...\n"
             nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
             p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
             p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calib.obs')
@@ -791,11 +755,10 @@ def tab3_calibrar():
             
             req_r = urllib.request.Request(adaptar_url_nube(url_rover), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_r, timeout=45) as res, open(p_r_raw, 'wb') as f: shutil.copyfileobj(res, f)
-            
+
             obs_b_raw = parse_rinex_obs_completo(p_b_raw)
             obs_r_raw = parse_rinex_obs_completo(p_r_raw)
             
-            yield "[PROGRESO] Ensamblando Malla Temporal de Calibración Dinámica...\n"
             base_sinc, rover_sinc = {}, {}
             for tr in sorted(list(obs_r_raw.keys())):
                 base_interp = interpolar_base_a_rover(obs_b_raw, tr)
@@ -804,14 +767,13 @@ def tab3_calibrar():
                     base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']
                     rover_sinc[tr] = obs_r_raw[tr]
 
-            # [REPLICACIÓN DEL CÓDIGO ORIGINAL]: Se obliga a crear los archivos truncados 
-            # en /tmp antes de mandarlos a la matriz, para igualar los filtros permisivos.
+            # >>> ESTO ES LO QUE SE OMITIÓ EN LA VERSIÓN ANTERIOR <<<
+            # Copia exacta de tu flujo original: se generan los archivos truncados y se leen
             p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
             p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
             generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
             generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
 
-            # [COPIA LITERAL ORIGINAL]: Leer los archivos físicos alterados
             obs_b_homo = parse_rinex_obs_completo(p_b_h)
             obs_r_homo = parse_rinex_obs_completo(p_r_h)
             nav = parse_rinex_nav_real(nav_path)
@@ -956,29 +918,24 @@ def tab4_procesar():
 
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Procesamiento DGPS Serverless (Opción C Total)...\n"
+            yield "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n"
             if utm_e == 0.0 or utm_n == 0.0: 
                 yield "> [ERROR] Coordenadas Base incompletas.\n"; return
             
-            if not url_base or not url_rover_nuevo or not url_nav: 
-                yield "> [ERROR FATAL] Faltan URLs base, rover o efemérides.\n"; return
-
-            yield "[PROGRESO] Interceptando mallas masivas desde la Nube (Base, Rover, Nav)...\n"
             nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-            req_n = urllib.request.Request(adaptar_url_nube(url_nav), headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req_n, timeout=45) as res, open(nav_path, 'wb') as f: shutil.copyfileobj(res, f)
-            
             p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
             p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo.obs')
-            
+
+            req_n = urllib.request.Request(adaptar_url_nube(url_nav), headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req_n, timeout=45) as res, open(nav_path, 'wb') as f: shutil.copyfileobj(res, f)
             req_b = urllib.request.Request(adaptar_url_nube(url_base), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_b, timeout=45) as res, open(p_b_raw, 'wb') as f: shutil.copyfileobj(res, f)
             req_r = urllib.request.Request(adaptar_url_nube(url_rover_nuevo), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_r, timeout=45) as res, open(p_r_nuevo, 'wb') as f: shutil.copyfileobj(res, f)
-            
-            # [COPIA LITERAL ORIGINAL]: Este es el mismo bloque de tu código en tab4
+
+            # >>> COPIA EXACTA PESTAÑA 4 ORIGINAL <<< (Lee de los RAW directos)
             obs_b_raw = parse_rinex_obs_completo(p_b_raw)
-            obs_r_raw = parse_rinex_obs_completo(p_r_nuevo)
+            obs_r_raw = parse_rinex_obs_completo(p_r_nuevo) 
             nav = parse_rinex_nav_real(nav_path)
             
             yield "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n"
