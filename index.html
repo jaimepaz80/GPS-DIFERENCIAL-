@@ -71,7 +71,6 @@
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Enlace Directo)</h2>
-            <p class="text-sm text-gray-400 mb-4">Pegue el enlace de descarga directa del archivo de efemérides (.nav o .rnx) para evitar errores 413 Payload Too Large.</p>
             <form id="form-tab2" onsubmit="submitTab2Form(event)">
                 <div class="mb-4">
                     <label class="block text-sm mb-1">URL Archivo de Efemérides (.nav / .rnx):</label>
@@ -85,7 +84,6 @@
 
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
-            <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754).</p>
             <form id="form-tab3" onsubmit="submitForm(event, '/tab3_calibrar', 'console3', 4)">
                 
                 <div class="grid grid-cols-3 gap-4 mb-4">
@@ -266,7 +264,6 @@
             if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.add('hidden');
             if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.add('hidden');
 
-            // INYECCIÓN DE ESTADO SERVERLESS (OPCIÓN C TOTAL)
             if (url === '/tab3_calibrar') {
                 data.append('url_base', window.gnssState.url_base);
                 data.append('url_rover', window.gnssState.url_rover);
@@ -301,7 +298,6 @@
                         if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.remove('hidden');
                         if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.remove('hidden');
                         
-                        // CAPTURAR URLs DEL FORMULARIO 1
                         if (url === '/tab1_homogenizar' && fullOutput.includes('[SUCCESS]')) {
                             const uBase = form.querySelector('input[name="url_base"]').value;
                             const uRover = form.querySelector('input[name="url_rover"]').value;
@@ -311,7 +307,6 @@
                             window.gnssState.url_rover = uRover;
                         }
 
-                        // TRANSFERIR PARÁMETROS CALIBRADOS
                         if (url === '/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
                             document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
                             document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
@@ -361,7 +356,6 @@
                         document.getElementById('btn-tab4').classList.remove('disabled-tab');
                         document.getElementById('btn-pdf-tab2').classList.remove('hidden');
                         
-                        // ALMACENAR LA URL EN VEZ DEL CONTENIDO GIGANTE
                         const uNav = form.querySelector('input[name="url_nav"]').value;
                         localStorage.setItem('url_nav', uNav);
                         window.gnssState.url_nav = uNav;
@@ -397,7 +391,6 @@
             } catch (error) {}
         }
 
-        // Activación de tabs en caso de recargar página y mantener datos vivos en localStorage
         if(window.gnssState.url_base && window.gnssState.url_rover && window.gnssState.url_nav) {
             document.getElementById('btn-tab2').classList.remove('disabled-tab');
             document.getElementById('btn-tab3').classList.remove('disabled-tab');
