@@ -32,7 +32,7 @@
             <form id="form-tab1" onsubmit="submitFormTab1(event)">
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="block text-sm mb-1">Enlace Base Pivote (Drive, Dropbox, Firebase):</label>
+                        <label class="block text-sm mb-1">Enlace Base Pivote (Drive, Dropbox):</label>
                         <input type="url" id="obs_base_input" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-sm">
                     </div>
                     <div>
@@ -47,9 +47,15 @@
         </section>
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Broadcast)</h2>
-            <p class="text-sm text-gray-400 mb-4">Descarga automática de IGS/BKG según fecha de la Base almacenada en memoria.</p>
-            <button onclick="submitTab2()" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition shadow-lg">2. Descargar Efemérides (.nav) y Avanzar</button>
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (URLs Nube)</h2>
+            <p class="text-sm text-gray-400 mb-4">Enlace directo al archivo de navegación (.nav o .??n).</p>
+            <form id="form-tab2" onsubmit="submitFormTab2(event)">
+                <div class="mb-4">
+                    <label class="block text-sm mb-1">Enlace Efemérides (Drive, Dropbox):</label>
+                    <input type="url" id="nav_url_input" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-sm">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition shadow-lg">2. Validar Efemérides y Avanzar</button>
+            </form>
             <div id="console2" class="console p-4 mt-4 h-48 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
         </section>
@@ -151,10 +157,10 @@
     </div>
 
     <script>
-        // MEMORIA GLOBAL PARA ARQUITECTURA SERVERLESS VERCEL
+        // MEMORIA GLOBAL PARA ARQUITECTURA SERVERLESS VERCEL (SOLO ENLACES)
         let globalBaseUrl = null;
         let globalRoverCalibUrl = null;
-        let globalNavBlob = null;
+        let globalNavUrl = null;
 
         // Controlador de Avance Unidireccional y Bloqueante
         function enforceForwardNavigation(current, next) {
@@ -208,19 +214,17 @@
         }
 
         // ================= TAB 2 =================
-        async function submitTab2() {
-            if (!globalBaseUrl) {
-                alert("Error de flujo: No hay URL base en memoria.");
-                return;
-            }
+        async function submitFormTab2(e) {
+            e.preventDefault();
+            globalNavUrl = document.getElementById('nav_url_input').value.trim();
+            
+            if (!globalNavUrl) return;
 
             const display = document.getElementById('console2');
-            display.innerHTML = "> Descargando temporalmente la Base y conectando con IGS...\n";
+            display.innerHTML = "> Verificando y conectando con el enlace de efemérides...\n";
             
             const data = new FormData();
-            data.append('url_base', globalBaseUrl);
-
-            let fullOutput = "";
+            data.append('url_nav', globalNavUrl);
 
             try {
                 const response = await fetch('/tab2_efemerides', { method: 'POST', body: data });
@@ -231,27 +235,10 @@
                     const { value, done } = await reader.read();
                     if (done) break;
                     let text = decoder.decode(value);
-                    fullOutput += text;
-
-                    let displayOutput = fullOutput;
-                    const navStartIdx = displayOutput.indexOf('---NAV_DATA_START---');
-                    if (navStartIdx !== -1) {
-                        displayOutput = displayOutput.substring(0, navStartIdx) + "\n[ÉXITO] Archivo de efemérides (.nav) extraído y anclado a la memoria RAM exitosamente.\n[SUCCESS]";
-                    }
-                    display.innerHTML = displayOutput;
+                    display.innerHTML += text;
                     display.scrollTop = display.scrollHeight;
                     
-                    if (fullOutput.includes('[SUCCESS]')) {
-                        const startTag = "---NAV_DATA_START---\n";
-                        const endTag = "\n---NAV_DATA_END---";
-                        const start = fullOutput.indexOf(startTag) + startTag.length;
-                        const end = fullOutput.indexOf(endTag);
-                        
-                        if (start !== -1 && end !== -1) {
-                            const navData = fullOutput.substring(start, end);
-                            globalNavBlob = new Blob([navData], { type: 'text/plain' });
-                        }
-                        
+                    if (text.includes('[SUCCESS]')) {
                         document.getElementById('btn-pdf-tab2').classList.remove('hidden');
                         setTimeout(() => enforceForwardNavigation(2, 3), 2000);
                     }
@@ -267,14 +254,14 @@
             const form = e.target;
             const data = new FormData(form);
             
-            if (!globalBaseUrl || !globalRoverCalibUrl || !globalNavBlob) {
-                alert("Error crítico: Faltan URLs o efemérides en la memoria RAM del navegador.");
+            if (!globalBaseUrl || !globalRoverCalibUrl || !globalNavUrl) {
+                alert("Error crítico: Faltan URLs en la memoria RAM del navegador.");
                 return;
             }
 
             data.append('url_base', globalBaseUrl);
             data.append('url_rover', globalRoverCalibUrl);
-            data.append('nav_file', globalNavBlob, 'auto_nav.nav');
+            data.append('url_nav', globalNavUrl);
 
             const display = document.getElementById('console3');
             display.innerHTML = "> Inyectando Enlaces y Procesando Motor Matemático...\n";
@@ -332,14 +319,14 @@
             
             const roverNuevoUrl = document.getElementById('obs_rover_nuevo_input').value.trim();
             
-            if (!globalBaseUrl || !globalNavBlob || !roverNuevoUrl) {
-                alert("Error crítico: Faltan URLs o efemérides para el proceso final.");
+            if (!globalBaseUrl || !globalNavUrl || !roverNuevoUrl) {
+                alert("Error crítico: Faltan URLs para el proceso final.");
                 return;
             }
 
             data.append('url_base', globalBaseUrl);
             data.append('url_rover_nuevo', roverNuevoUrl);
-            data.append('nav_file', globalNavBlob, 'auto_nav.nav');
+            data.append('url_nav', globalNavUrl);
 
             const display = document.getElementById('console4');
             display.innerHTML = "> Inyectando Enlaces y Procesando Ajuste DGPS...\n";
