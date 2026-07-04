@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GNSSJP PRO - Motor Geodésico Web</title>
+    <title>GNSS Engine L1-Sinc DGPS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -10,87 +10,91 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         .disabled-tab { opacity: 0.5; pointer-events: none; }
-        #app-container { display: none; }
     </style>
 </head>
 <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
 
-    <div id="login-container" class="flex items-center justify-center min-h-screen">
-        <div class="bg-gray-800 p-8 rounded shadow-lg w-96 border border-gray-700">
-            <h2 class="text-2xl font-bold text-green-400 mb-6 text-center">GNSSJP PRO Acceso Restringido</h2>
-            <form id="login-form">
-                <div class="mb-4">
-                    <label class="block text-sm mb-1 text-gray-300">Correo Electrónico</label>
-                    <input type="email" id="email" required class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-white">
+    <div id="auth-container" class="flex items-center justify-center min-h-screen">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md border border-gray-700">
+            <h2 class="text-2xl font-bold text-center text-green-400 mb-6">GNSSJP PRO - Acceso</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm mb-1 text-gray-300">Correo Electrónico:</label>
+                    <input type="email" id="auth-email" class="w-full bg-gray-700 p-2.5 rounded border border-gray-600 text-white focus:border-green-500 focus:outline-none">
                 </div>
-                <div class="mb-6">
-                    <label class="block text-sm mb-1 text-gray-300">Contraseña</label>
-                    <input type="password" id="password" required class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-white">
+                <div>
+                    <label class="block text-sm mb-1 text-gray-300">Contraseña:</label>
+                    <input type="password" id="auth-password" class="w-full bg-gray-700 p-2.5 rounded border border-gray-600 text-white focus:border-green-500 focus:outline-none">
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Ingresar al Sistema</button>
-            </form>
-            <div id="login-error" class="mt-4 text-red-500 text-sm hidden font-bold text-center"></div>
+                <div id="auth-error" class="text-red-500 text-sm hidden font-mono"></div>
+                <button onclick="ejecutarLogin()" class="w-full bg-green-600 hover:bg-green-500 py-2.5 rounded font-bold transition text-white shadow-lg mt-2">Iniciar Sesión</button>
+                <button onclick="ejecutarRegistro()" class="w-full bg-gray-700 hover:bg-gray-600 py-2 rounded text-sm transition text-gray-300">Registrar Nuevo Usuario</button>
+            </div>
         </div>
     </div>
 
-    <div id="app-container" class="container mx-auto p-4 max-w-5xl">
-        <header class="border-b border-gray-700 pb-4 mb-6 flex justify-between items-end">
+    <div class="container mx-auto p-4 max-w-5xl" id="app-container" style="display: none;">
+        <header class="border-b border-gray-700 pb-4 mb-6 flex justify-between items-center">
             <div>
                 <h1 class="text-3xl font-bold text-green-400">GNSSJP PRO - Motor Geodésico DGPS Diferencial</h1>
-                <p class="text-gray-400 text-sm">Cálculo Diferencial Pseudodistancia | "Dato mata relato"</p>
+                <p class="text-gray-400 text-sm">Cálculo Diferencial Pseudodistancia (RMSE Min Test) | "Dato mata relato"</p>
             </div>
-            <button id="btn-logout" class="bg-red-600 hover:bg-red-500 px-4 py-2 rounded text-sm font-bold shadow-lg transition">Cerrar Sesión</button>
+            <button onclick="ejecutarLogout()" class="bg-red-700 hover:bg-red-600 px-4 py-2 rounded font-bold text-sm transition">Cerrar Sesión</button>
         </header>
 
         <nav class="flex space-x-2 bg-gray-800 p-2 rounded mb-6" id="tabs-nav">
             <button onclick="switchTab(1)" id="btn-tab1" class="px-4 py-2 rounded bg-blue-600 font-bold">1. Datos Raw (Calibración)</button>
-            <button onclick="switchTab(2)" id="btn-tab2" class="px-4 py-2 rounded bg-gray-700 disabled-tab">2. Efemérides (Carga Manual)</button>
+            <button onclick="switchTab(2)" id="btn-tab2" class="px-4 py-2 rounded bg-gray-700 disabled-tab">2. Efemérides</button>
             <button onclick="switchTab(3)" id="btn-tab3" class="px-4 py-2 rounded bg-gray-700 disabled-tab">3. Calibración Exacta</button>
             <button onclick="switchTab(4)" id="btn-tab4" class="px-4 py-2 rounded bg-gray-700 disabled-tab">4. Procesar Punto</button>
         </nav>
 
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
-            <form id="form-tab1" onsubmit="procesarTab1JS(event)">
+            <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
-                        <input type="file" id="obs_base" name="obs_base" required accept=".obs,.rnx" class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <input type="file" name="obs_base" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                     <div>
                         <label class="block text-sm mb-1">Archivo Rover 1 (Punto de Calibración):</label>
-                        <input type="file" id="obs_rover" name="obs_rover" required accept=".obs,.rnx" class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <input type="file" name="obs_rover" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Sincronizar Épocas Base/Calibración en RAM</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Sincronizar Épocas Base/Calibración</button>
             </form>
             <div id="console1" class="console p-4 mt-4 h-64 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab1" onclick="descargarTextoPDF('console1', 'Informe_Sincronizacion')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Épocas PDF</button>
         </section>
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual en RAM)</h2>
-            <form id="form-tab2" onsubmit="procesarTab2JS(event)">
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual)</h2>
+            <p class="text-sm text-gray-400 mb-4">Cargue de forma manual el archivo de efemérides orbitales e ionosféricas (.nav o .rnx).</p>
+            <form id="form-tab2" onsubmit="submitTab2Form(event)">
                 <div class="mb-4">
-                    <label class="block text-sm mb-1 text-blue-400 font-bold">Archivo de Efemérides (.nav):</label>
-                    <input type="file" id="nav_file" name="nav_file" required accept=".nav,.rnx" class="w-full bg-gray-700 p-2 rounded border border-blue-500">
+                    <label class="block text-sm mb-1">Archivo de Efemérides de Navegación:</label>
+                    <input type="file" name="nav_file" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Cargar y Parsear Efemérides</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Procesar y Validar Efemérides (.nav)</button>
             </form>
             <div id="console2" class="console p-4 mt-4 h-48 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
         </section>
+
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
-            <form id="form-tab3" onsubmit="procesarTab3JS(event)">
+            <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
+            <form id="form-tab3" onsubmit="submitForm(event, '/tab3_calibrar', 'console3', 4)">
+                
                 <div class="grid grid-cols-3 gap-4 mb-4">
                     <div class="col-span-3"><h3 class="text-purple-400 font-bold text-sm">COORDENADAS ABSOLUTAS BASE (ESTACIÓN FIJA)</h3></div>
-                    <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" id="t3_utm_n" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Este (X):</label><input type="number" step="any" id="t3_utm_e" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" id="t3_utm_c" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Huso UTM:</label><input type="number" id="t3_utm_h" name="utm_huso" value="19" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Este (X):</label><input type="number" step="any" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Huso UTM:</label><input type="number" name="utm_huso" value="19" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Hemisferio:</label>
-                        <select id="t3_utm_hem" name="utm_hemisferio" class="w-full bg-gray-700 p-1 text-sm rounded">
+                        <select name="utm_hemisferio" class="w-full bg-gray-700 p-1 text-sm rounded">
                             <option value="N">Norte (N)</option>
                             <option value="S">Sur (S)</option>
                         </select>
@@ -99,22 +103,22 @@
 
                 <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="col-span-3"><h3 class="text-green-400 font-bold text-sm">COORDENADAS VERDADERAS ROVER (PUNTO DE CONTROL)</h3></div>
-                    <div><label class="block text-xs">Norte Rover (Y):</label><input type="number" step="any" id="t3_utm_n_r" name="utm_norte_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
-                    <div><label class="block text-xs">Este Rover (X):</label><input type="number" step="any" id="t3_utm_e_r" name="utm_este_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
-                    <div><label class="block text-xs">Cota Rover (Z):</label><input type="number" step="any" id="t3_utm_c_r" name="utm_cota_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
+                    <div><label class="block text-xs">Norte Rover (Y):</label><input type="number" step="any" name="utm_norte_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
+                    <div><label class="block text-xs">Este Rover (X):</label><input type="number" step="any" name="utm_este_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
+                    <div><label class="block text-xs">Cota Rover (Z):</label><input type="number" step="any" name="utm_cota_r" required class="w-full bg-gray-700 p-1 text-sm rounded border border-green-500"></div>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">PARÁMETROS HARD FILTER (Calculados y Editables)</h3></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" id="t3_err_h" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" id="t3_err_v" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
                     <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS ESTADÍSTICOS Y MÁSCARA (Calculados y Editables)</h3></div>
-                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" id="t3_mask" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" id="t3_cp" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" id="t3_ca" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
                 <button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 py-3 rounded font-bold transition text-lg mt-2 shadow-lg">Ejecutar Motor de Calibración Pentadimensional</button>
@@ -125,23 +129,24 @@
 
         <section id="tab4" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Ajuste de Red DGPS Diferencial (Cálculo Rover Desconocido)</h2>
-            <form id="form-tab4" onsubmit="procesarTab4JS(event)">
+            <form id="form-tab4" onsubmit="submitForm(event, '/tab4_procesar', 'console4', null)">
+                
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <h3 class="text-blue-400 font-bold text-sm mb-2">NUEVO ARCHIVO ROVER (PUNTO DESCONOCIDO)</h3>
                         <label class="block text-xs">Cargar Archivo RINEX Rover (.obs):</label>
-                        <input type="file" id="obs_rover_nuevo" name="obs_rover_nuevo" required accept=".obs,.rnx" class="w-full bg-gray-700 p-2 rounded border border-blue-500">
+                        <input type="file" name="obs_rover_nuevo" required class="w-full bg-gray-700 p-2 rounded border border-blue-500">
                     </div>
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-yellow-400 font-bold text-sm">COORDENADA ABSOLUTA BASE (AUTO-LLENADO / HEREDADA)</h3></div>
-                    <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" id="t4_utm_n" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Este (X):</label><input type="number" step="any" id="t4_utm_e" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" id="t4_utm_c" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Huso UTM:</label><input type="number" id="t4_utm_h" name="utm_huso" value="19" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div class="col-span-3"><h3 class="text-yellow-400 font-bold text-sm">COORDENADA ABSOLUTA BASE (AUTO-LLENADO)</h3></div>
+                    <div><label class="block text-xs">Norte (Y):</label><input type="number" step="any" name="utm_norte" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Este (X):</label><input type="number" step="any" name="utm_este" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Cota Elipsoidal (Z):</label><input type="number" step="any" name="utm_cota" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Huso UTM:</label><input type="number" name="utm_huso" value="19" required class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                     <div><label class="block text-xs">Hemisferio:</label>
-                        <select id="t4_utm_hem" name="utm_hemisferio" class="w-full bg-gray-700 p-1 text-sm rounded">
+                        <select name="utm_hemisferio" class="w-full bg-gray-700 p-1 text-sm rounded">
                             <option value="N">Norte (N)</option>
                             <option value="S">Sur (S)</option>
                         </select>
@@ -149,21 +154,21 @@
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div><label class="block text-xs">Altura Antena Base (m):</label><input type="number" step="any" id="t4_alt_b" name="altura_base" value="0.000" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Altura Antena Rover (m):</label><input type="number" step="any" id="t4_alt_r" name="altura_rover" value="0.000" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Altura Antena Base (m):</label><input type="number" step="any" name="altura_base" value="0.000" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Altura Antena Rover (m):</label><input type="number" step="any" name="altura_rover" value="0.000" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / HEREDADO)</h3></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" id="t4_err_h" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
-                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" id="t4_err_v" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div class="col-span-2"><h3 class="text-red-400 font-bold text-sm">FILTRO EXCLUYENTE (AUTO-LLENADO / EDITABLE)</h3></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Horizontal (m):</label><input type="number" step="any" name="err_hor_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
+                    <div><label class="block text-xs text-red-300 font-bold">Error Permitido Vertical (m):</label><input type="number" step="any" name="err_ver_max" value="0.50" class="w-full bg-gray-700 p-1 text-sm rounded border border-red-500"></div>
                 </div>
 
                 <div class="grid grid-cols-3 gap-4 mb-4 border-t border-gray-700 pt-4">
-                    <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / HEREDADO)</h3></div>
-                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" id="t4_mask" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" id="t4_cp" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
-                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" id="t4_ca" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div class="col-span-3"><h3 class="text-blue-400 font-bold text-sm">PARÁMETROS CALIBRADOS (AUTO-LLENADO / EDITABLE)</h3></div>
+                    <div><label class="block text-xs">Máscara Elevación (°):</label><input type="number" step="any" name="param_mask" value="10.00" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Filtro Sigma Plan (cp):</label><input type="number" step="any" name="param_cp" value="2.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
+                    <div><label class="block text-xs">Filtro Sigma Alt (ca):</label><input type="number" step="any" name="param_ca" value="1.50" class="w-full bg-gray-700 p-1 text-sm rounded"></div>
                 </div>
 
                 <button type="submit" class="w-full bg-green-600 hover:bg-green-500 py-3 rounded font-bold transition text-lg mt-2 shadow-lg">Procesar Punto Desconocido</button>
@@ -172,601 +177,272 @@
             <button id="btn-pdf-tab4" onclick="descargarTextoPDF('console4', 'Informe_Geodesico_DGPS')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Resultados</button>
         </section>
     </div>
-        // =====================================================================
-        // CONSTANTES Y MATEMÁTICA PURA (IDÉNTICO A APP.PY)
-        // =====================================================================
-        const C_LIGHT = 299792458.0;
-        const OMEGA_E = 7.2921151467e-5;
-        const MU = 3.986005e14;
 
-        function gpsTimeToTow(year, month, day, hour, minute, second) {
-            let sec_int = Math.floor(second);
-            let sec_frac = second - sec_int;
-            let dateTarget = Date.UTC(year, month - 1, day, hour, minute, sec_int);
-            let dateGps = Date.UTC(1980, 0, 6, 0, 0, 0);
-            let total = (dateTarget - dateGps) / 1000 + sec_frac;
-            return total - (Math.floor(total / 604800) * 604800);
-        }
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-        function transposeMatrix(M) {
-            if (!M || !M[0]) return [];
-            return M[0].map((_, i) => M.map(row => row[i]));
-        }
+        const firebaseConfig = {
+            apiKey: "AIzaSyBAASJamPDpSKU6JZx88oLNQprgwkk3DZs",
+            authDomain: "gpsj-6790c.firebaseapp.com",
+            projectId: "gpsj-6790c",
+            storageBucket: "gpsj-6790c.firebasestorage.app",
+            messagingSenderId: "558545141519",
+            appId: "1:558545141519:web:d21e7360d54db4d84d887a",
+            measurementId: "G-3BQNVX74RS"
+        };
 
-        function matmul(A, B) {
-            if (!A || !B || !A[0] || !B[0]) return [];
-            let result = Array(A.length).fill().map(() => Array(B[0].length).fill(0.0));
-            for (let i = 0; i < A.length; i++) {
-                for (let j = 0; j < B[0].length; j++) {
-                    for (let k = 0; k < B.length; k++) {
-                        result[i][j] += A[i][k] * B[k][j];
-                    }
-                }
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        window.ejecutarLogin = function() {
+            const email = document.getElementById('auth-email').value;
+            const pass = document.getElementById('auth-password').value;
+            const errBox = document.getElementById('auth-error');
+            errBox.classList.add('hidden');
+
+            signInWithEmailAndPassword(auth, email, pass)
+                .catch(error => {
+                    errBox.innerText = "> Error: " + error.message;
+                    errBox.classList.remove('hidden');
+                });
+        };
+
+        window.ejecutarRegistro = function() {
+            const email = document.getElementById('auth-email').value;
+            const pass = document.getElementById('auth-password').value;
+            const errBox = document.getElementById('auth-error');
+            errBox.classList.add('hidden');
+
+            createUserWithEmailAndPassword(auth, email, pass)
+                .then(() => {
+                    alert("Usuario registrado e iniciado con éxito.");
+                })
+                .catch(error => {
+                    errBox.innerText = "> Error registro: " + error.message;
+                    errBox.classList.remove('hidden');
+                });
+        };
+
+        window.ejecutarLogout = function() {
+            signOut(auth);
+        };
+
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                document.getElementById('auth-container').style.display = 'none';
+                document.getElementById('app-container').style.display = 'block';
+            } else {
+                document.getElementById('app-container').style.display = 'none';
+                document.getElementById('auth-container').style.display = 'flex';
             }
-            return result;
-        }
+        });
+    </script>
 
-        function invertMatrixNxN(M) {
-            if (!M || !M[0]) return null;
-            let n = M.length;
-            let A = M.map(row => [...row]);
-            let I = Array(n).fill().map((_, i) => Array(n).fill().map((_, j) => i === j ? 1.0 : 0.0));
-            for (let i = 0; i < n; i++) {
-                let max_k = i;
-                for (let k = i + 1; k < n; k++) { if (Math.abs(A[k][i]) > Math.abs(A[max_k][i])) max_k = k; }
-                if (max_k !== i) { [A[i], A[max_k]] = [A[max_k], A[i]]; [I[i], I[max_k]] = [I[max_k], I[i]]; }
-                let pivot = A[i][i];
-                if (Math.abs(pivot) < 1e-15) return null;
-                for (let j = 0; j < n; j++) { A[i][j] /= pivot; I[i][j] /= pivot; }
-                for (let k = 0; k < n; k++) {
-                    if (k === i) continue;
-                    let factor = A[k][i];
-                    for (let j = 0; j < n; j++) { A[k][j] -= factor * A[i][j]; I[k][j] -= factor * I[i][j]; }
-                }
-            }
-            return I;
-        }
+    <script>
+        window.gnssState = {
+            base_raw_content: localStorage.getItem('base_raw_content') || '',
+            base_calib_homo_content: localStorage.getItem('base_calib_homo_content') || '',
+            rover_calib_homo_content: localStorage.getItem('rover_calib_homo_content') || '',
+            nav_content: localStorage.getItem('nav_content') || '',
+            name_base_raw: localStorage.getItem('name_base_raw') || '',
+            name_rover_calib_raw: localStorage.getItem('name_rover_calib_raw') || '',
+            name_nav_file: localStorage.getItem('name_nav_file') || ''
+        };
 
-        // =====================================================================
-        // MODELOS GEODÉSICOS
-        // =====================================================================
-        function calcularSaastamoinen(lat_deg, alt, elev_deg) {
-            if (elev_deg < 5.0) elev_deg = 5.0;
-            let lat_rad = Math.max(lat_deg * Math.PI / 180.0, -Math.PI/2);
-            let elev_rad = elev_deg * Math.PI / 180.0;
-            let H = Math.max(0.0, Math.min(alt, 40000.0));
-            let P = 1013.25 * Math.pow((1.0 - 2.2557e-5 * H), 5.2568);
-            let T = 288.15 - 0.0065 * H;
-            let e = 6.11 * 0.5 * Math.pow(10.0, (7.5 * (T - 273.15) / (T - 273.15 + 237.3))) * Math.pow((1.0 - 2.2557e-5 * H), 5.2568);
-            let zhd = (0.0022768 * P) / (1.0 - 0.00266 * Math.cos(2.0 * lat_rad) - 0.00028 * (H / 1000.0));
-            let zwd = 0.0022768 * ((1255.0 / T) + 0.05) * e;
-            return (zhd + zwd) * (1.0 / Math.sin(elev_rad));
-        }
-
-        function geodesicas_a_ecef(lat_deg, lon_deg, alt) {
-            let a = 6378137.0;
-            let e2 = 0.0066943799901413155;
-            let lat = lat_deg * Math.PI / 180.0;
-            let lon = lon_deg * Math.PI / 180.0;
-            let N = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(lat), 2));
-            return [(N + alt) * Math.cos(lat) * Math.cos(lon), (N + alt) * Math.cos(lat) * Math.sin(lon), (N * (1 - e2) + alt) * Math.sin(lat)];
-        }
-
-        function ecef_a_geodesicas(x, y, z) {
-            let a = 6378137.0;
-            let e2 = 0.0066943799901413155;
-            let b = Math.sqrt(Math.pow(a, 2) * (1 - e2));
-            let ep2 = (Math.pow(a, 2) - Math.pow(b, 2)) / Math.pow(b, 2);
-            let p = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
-            let th = Math.atan2(a * z, b * p);
-            let lat = Math.atan2((z + ep2 * b * Math.pow(Math.sin(th), 3)), (p - e2 * a * Math.pow(Math.cos(th), 3)));
-            let N = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(lat), 2));
-            return [lat * 180.0 / Math.PI, Math.atan2(y, x) * 180.0 / Math.PI, p / Math.cos(lat) - N];
-        }
-
-        function geodesicas_a_utm(lat, lon, force_zone=19) {
-            let a = 6378137.0;
-            let e2 = 0.0066943799901413155;
-            let lat_r = lat * Math.PI / 180.0;
-            let lon_r = lon * Math.PI / 180.0;
-            let LongOrig = ((force_zone - 1) * 6 - 180 + 3) * Math.PI / 180.0;
-            let ep2 = e2 / (1 - e2);
-            let N = a / Math.sqrt(1 - e2 * Math.pow(Math.sin(lat_r), 2));
-            let T = Math.pow(Math.tan(lat_r), 2);
-            let C = ep2 * Math.pow(Math.cos(lat_r), 2);
-            let A = Math.cos(lat_r) * (lon_r - LongOrig);
-            let M = a * ((1 - e2/4 - 3*Math.pow(e2,2)/64 - 5*Math.pow(e2,3)/256)*lat_r - (3*e2/8 + 3*Math.pow(e2,2)/32 + 45*Math.pow(e2,3)/1024)*Math.sin(2*lat_r) + (15*Math.pow(e2,2)/256 + 45*Math.pow(e2,3)/1024)*Math.sin(4*lat_r) - (35*Math.pow(e2,3)/3072)*Math.sin(6*lat_r));
-            let Easting = 0.9996 * N * (A + (1-T+C)*Math.pow(A,3)/6 + (5-18*T+Math.pow(T,2)+72*C-58*ep2)*Math.pow(A,5)/120) + 500000.0;
-            let Northing = 0.9996 * (M + N*Math.tan(lat_r)*(Math.pow(A,2)/2 + (5-T+9*C+4*Math.pow(C,2))*Math.pow(A,4)/24 + (61-58*T+Math.pow(T,2)+600*C-330*ep2)*Math.pow(A,6)/720));
-            return [lat < 0 ? Northing + 10000000.0 : Northing, Easting];
-        }
-
-        function utm_a_geodesicas(easting, northing, zone=19, hemisferio='N') {
-            let a = 6378137.0;
-            let e2 = 0.0066943799901413155;
-            let e1 = (1 - Math.sqrt(1 - e2)) / (1 + Math.sqrt(1 - e2));
-            let x = easting - 500000.0;
-            let y = hemisferio.toUpperCase() === 'N' ? northing : northing - 10000000.0;
-            let m = y / 0.9996;
-            let mu = m / (a * (1 - e2/4 - 3*Math.pow(e2,2)/64 - 5*Math.pow(e2,3)/256));
-            let phi1_rad = mu + (3*e1/2 - 27*Math.pow(e1,3)/32)*Math.sin(2*mu) + (21*Math.pow(e1,2)/16 - 55*Math.pow(e1,4)/32)*Math.sin(4*mu);
-            let n1 = a / Math.sqrt(1 - e2*Math.pow(Math.sin(phi1_rad), 2));
-            let t1 = Math.pow(Math.tan(phi1_rad), 2);
-            let c1 = (e2 / (1 - e2)) * Math.pow(Math.cos(phi1_rad), 2);
-            let r1 = a * (1 - e2) / Math.pow(1 - e2*Math.pow(Math.sin(phi1_rad), 2), 1.5);
-            let d = x / (n1 * 0.9996);
-            let lat_rad = phi1_rad - (n1*Math.tan(phi1_rad)/r1) * (Math.pow(d,2)/2 - (5 + 3*t1 + 10*c1)*Math.pow(d,4)/24);
-            let lon_rad = (d - (1 + 2*t1 + c1)*Math.pow(d,3)/6) / Math.cos(phi1_rad);
-            let lon_origen = ((zone - 1) * 6 - 180 + 3) * Math.PI / 180.0;
-            return [lat_rad * 180.0 / Math.PI, (lon_rad + lon_origen) * 180.0 / Math.PI, 0.0];
-        }
-
-        function calcularTopocentricas(xs, ys, zs, X_usr, Y_usr, Z_usr) {
-            let [lat_val, lon_val, alt_val] = ecef_a_geodesicas(X_usr, Y_usr, Z_usr);
-            let lat_r = lat_val * Math.PI / 180.0;
-            let lon_r = lon_val * Math.PI / 180.0;
-            let dx = xs - X_usr, dy = ys - Y_usr, dz = zs - Z_usr;
-            let sin_lat = Math.sin(lat_r), cos_lat = Math.cos(lat_r);
-            let sin_lon = Math.sin(lon_r), cos_lon = Math.cos(lon_r);
-            let e = -sin_lon * dx + cos_lon * dy;
-            let n = -sin_lat * cos_lon * dx - sin_lat * sin_lon * dy + cos_lat * dz;
-            let u = cos_lat * cos_lon * dx + cos_lat * sin_lon * dy + sin_lat * dz;
-            let dist = Math.sqrt(Math.pow(dx,2) + Math.pow(dy,2) + Math.pow(dz,2));
-            if (dist < 1e-6) return [0.0, 0.0];
-            let val_asin = Math.max(-1.0, Math.min(1.0, u / dist));
-            let el = Math.asin(val_asin) * 180.0 / Math.PI;
-            let az = Math.atan2(e, n) * 180.0 / Math.PI;
-            if (az < 0) az += 360.0;
-            return [el, az];
-        }
-
-        function calcularKlobuchar(lat_deg, lon_deg, el_deg, az_deg, tow, alpha, beta) {
-            if (alpha.every(v => v === 0) && beta.every(v => v === 0)) return 0.0;
-            let phi_u = lat_deg / 180.0, lam_u = lon_deg / 180.0;
-            let E = el_deg / 180.0, A = az_deg / 180.0;
-            let psi = 0.0137 / (E + 0.11) - 0.022;
-            let phi_i = phi_u + psi * Math.cos(A * Math.PI);
-            if (phi_i > 0.416) phi_i = 0.416; else if (phi_i < -0.416) phi_i = -0.416;
-            let lam_i = lam_u + (psi * Math.sin(A * Math.PI)) / Math.cos(phi_i * Math.PI);
-            let phi_m = phi_i + 0.064 * Math.cos((lam_i - 1.617) * Math.PI);
-            let t = 43200.0 * lam_i + tow;
-            t = t % 86400.0; if (t < 0) t += 86400.0;
-            let F = 1.0 + 16.0 * Math.pow((0.53 - E), 3);
-            let PER = beta[0] + beta[1]*phi_m + beta[2]*Math.pow(phi_m, 2) + beta[3]*Math.pow(phi_m, 3);
-            if (PER < 72000.0) PER = 72000.0;
-            let AMP = alpha[0] + alpha[1]*phi_m + alpha[2]*Math.pow(phi_m, 2) + alpha[3]*Math.pow(phi_m, 3);
-            if (AMP < 0.0) AMP = 0.0;
-            let x = (2.0 * Math.PI * (t - 50400.0)) / PER;
-            if (Math.abs(x) < 1.5707963267948966) return F * (5e-9 + AMP * (1.0 - Math.pow(x,2)/2.0 + Math.pow(x,4)/24.0)) * C_LIGHT;
-            return F * 5e-9 * C_LIGHT;
-        }
-
-        function calcularPosicionSateliteWGS84(eph, t_emision, tau_vuelo, sys_char) {
-            if (!eph || eph.sqrtA <= 0.0) return null;
-            let mu_sys = (sys_char === 'E' || sys_char === 'C') ? 3.986004418e14 : MU;
-            let omega_e_sys = (sys_char === 'C') ? 7.292115e-5 : OMEGA_E;
-            let A = Math.pow(eph.sqrtA, 2);
-            let n0 = Math.sqrt(mu_sys / Math.pow(A, 3));
-            let t_k = t_emision - eph.Toe;
-            if (sys_char === 'C') t_k -= 14.0;
-            if (t_k > 302400) t_k -= 604800; else if (t_k < -302400) t_k += 604800;
-            let M_k = eph.M0 + (n0 + eph.Delta_n) * t_k, E_k = M_k;
-            for (let i = 0; i < 5; i++) E_k = M_k + eph.e * Math.sin(E_k);
-            let dt_sat = eph.af0 + eph.af1 * t_k + eph.af2 * Math.pow(t_k, 2);
-            let nu_k = Math.atan2((Math.sqrt(1 - Math.pow(eph.e, 2)) * Math.sin(E_k)), (Math.cos(E_k) - eph.e));
-            let phi_k = nu_k + eph.omega;
-            let u_k = phi_k + eph.Cus * Math.sin(2 * phi_k) + eph.Cuc * Math.cos(2 * phi_k);
-            let r_k = A * (1 - eph.e * Math.cos(E_k)) + eph.Crs * Math.sin(2 * phi_k) + eph.Crc * Math.cos(2 * phi_k);
-            let i_k = eph.i0 + eph.Cic * Math.cos(2 * phi_k) + eph.Cis * Math.sin(2 * phi_k) + eph.IDOT * t_k;
-            let x_k = r_k * Math.cos(u_k), y_k = r_k * Math.sin(u_k);
-            let omega_k = eph.OMEGA + (eph.OMEGA_DOT - omega_e_sys) * t_k - omega_e_sys * eph.Toe;
-            let xs = x_k * Math.cos(omega_k) - y_k * Math.cos(i_k) * Math.sin(omega_k);
-            let ys = x_k * Math.sin(omega_k) + y_k * Math.cos(i_k) * Math.cos(omega_k);
-            let zs = y_k * Math.sin(i_k);
-            let theta = omega_e_sys * tau_vuelo;
-            return [xs * Math.cos(theta) + ys * Math.sin(theta), -xs * Math.sin(theta) + ys * Math.cos(theta), zs, dt_sat];
-        }
-
-        function seleccionarEfemerideOptima(ephList, t_target) {
-            if (!ephList || ephList.length === 0) return null;
-            return ephList.reduce((prev, curr) => Math.abs((curr.Toe || 0) - t_target) < Math.abs((prev.Toe || 0) - t_target) ? curr : prev);
-        }
-        // =====================================================================
-        // PARSER OPTIMIZADO PARA RAM Y FUNCIONES DGPS EXACTAS (IEEE 754)
-        // =====================================================================
-        function parseRinexObsCompleto(text) {
-            let obs = {}, sys_idx = {}, in_h = true, tow = null;
-            let start = 0;
-            let len = text.length;
+        function switchTab(num) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab' + num).classList.add('active');
             
-            while (start < len) {
-                let end = text.indexOf('\n', start);
-                if (end === -1) end = len;
-                let line = text.substring(start, end).replace('\r', '');
-                start = end + 1;
-
-                if (in_h) {
-                    if (line.includes("SYS / # / OBS TYPES")) {
-                        let sys_char = line[0], tokens = line.substring(6, 60).trim().split(/\s+/);
-                        sys_idx[sys_char] = {
-                            'C1': tokens.findIndex(x => x.startsWith('C1')),
-                            'L1': tokens.findIndex(x => x.startsWith('L1')),
-                            'C5': tokens.findIndex(x => x.startsWith('C5')),
-                            'L5': tokens.findIndex(x => x.startsWith('L5')),
-                            'S1': tokens.findIndex(x => x.startsWith('S1')),
-                            'S5': tokens.findIndex(x => x.startsWith('S5'))
-                        };
-                    } else if (line.includes("END OF HEADER")) in_h = false;
-                } else {
-                    if (line.startsWith('>')) {
-                        let p = line.substring(1).trim().split(/\s+/);
-                        if (p.length >= 6) {
-                            let y = parseInt(p[0]), m = parseInt(p[1]), d = parseInt(p[2]);
-                            let h = parseInt(p[3]), mn = parseInt(p[4]), sec = parseFloat(p[5]);
-                            if (y < 100) y += 2000;
-                            tow = Math.round(gpsTimeToTow(y, m, d, h, mn, sec) * 1e6) / 1e6;
-                            obs[tow] = { '_meta': [y, m, d, h, mn, sec] };
-                        }
-                    } else if (tow && line.length > 3 && "GRECSJ".includes(line[0])) {
-                        let sys_char = line[0], idxs = sys_idx[sys_char] || {}, data = {};
-                        const extVal = (idx) => {
-                            if (idx >= 0) {
-                                let start_idx = 3 + 16 * idx, end_idx = 17 + 16 * idx;
-                                if (line.length >= end_idx) {
-                                    let v = line.substring(start_idx, end_idx).trim();
-                                    if (v) return parseFloat(v.replace(/D/ig, 'E').replace(/d/ig, 'e'));
-                                }
-                            } return null;
-                        };
-                        let c1 = extVal(idxs.C1); if (c1 !== null) data['C1'] = c1;
-                        let l1 = extVal(idxs.L1); if (l1 !== null) data['L1'] = l1;
-                        let c5 = extVal(idxs.C5); if (c5 !== null) data['C5'] = c5;
-                        let l5 = extVal(idxs.L5); if (l5 !== null) data['L5'] = l5;
-                        let s1 = extVal(idxs.S1); if (s1 !== null) data['S1'] = s1;
-                        let s5 = extVal(idxs.S5); if (s5 !== null) data['S5'] = s5;
-                        
-                        if ((data['C1'] !== undefined && data['C1'] > 15000000.0) || (data['C5'] !== undefined && data['C5'] > 15000000.0)) {
-                            obs[tow][line.substring(0, 3).trim()] = data;
-                        }
-                    }
-                }
-            }
-            return obs;
-        }
-
-        function interpolar_base_a_rover(obs_base, tr, max_gap = 0.05) {
-            let tiempos_base = Object.keys(obs_base).map(Number).sort((a,b)=>a-b);
-            if (tiempos_base.length === 0) return null;
-            
-            let idx = 0;
-            let min_diff = Infinity;
-            for(let i = 0; i < tiempos_base.length; i++) {
-                let diff = Math.abs(tiempos_base[i] - tr);
-                if (diff < min_diff) { min_diff = diff; idx = i; }
-            }
-            
-            if (Math.abs(tiempos_base[idx] - tr) <= max_gap) {
-                return JSON.parse(JSON.stringify(obs_base[tiempos_base[idx]]));
-            }
-            return null;
-        }
-
-        function simularEscrituraDiscoPython(obs_dict) {
-            let truncado = {};
-            let tows = Object.keys(obs_dict).map(Number).sort((a,b)=>a-b);
-            for (let tow of tows) {
-                let meta = obs_dict[tow]['_meta'];
-                if (!meta) continue;
-                truncado[tow] = { '_meta': meta };
-                
-                let sats = Object.keys(obs_dict[tow]).filter(k => k !== '_meta');
-                for (let sat of sats) {
-                    let data = obs_dict[tow][sat];
-                    let s_data = {};
-                    if ('C1' in data && data['C1'] > 0) s_data['C1'] = Number(data['C1'].toFixed(3));
-                    if ('L1' in data && data['L1'] > 0) s_data['L1'] = Number(data['L1'].toFixed(3));
-                    if ('C5' in data && data['C5'] > 0) s_data['C5'] = Number(data['C5'].toFixed(3));
-                    if ('L5' in data && data['L5'] > 0) s_data['L5'] = Number(data['L5'].toFixed(3));
-                    
-                    if (Object.keys(s_data).length > 0) {
-                        truncado[tow][sat] = s_data;
-                    }
-                }
-            }
-            return truncado;
-        }
-
-        function parseRinexNavReal(text) {
-            let ephemeris = {}, iono_params = {'GPSA': [0,0,0,0], 'GPSB': [0,0,0,0], 'BDSA': [0,0,0,0], 'BDSB': [0,0,0,0]};
-            let in_h = true, sat = null, data = [];
-            let start = 0;
-            let len = text.length;
-
-            while (start < len) {
-                let end = text.indexOf('\n', start);
-                if (end === -1) end = len;
-                let line = text.substring(start, end).replace('\r', '');
-                start = end + 1;
-
-                if (in_h) {
-                    if (line.includes("IONOSPHERIC CORR")) {
-                        let sys_type = line.substring(0, 4).trim(), vals = [];
-                        for (let i = 0; i < 4; i++) {
-                            let chunk = line.substring(5 + i * 12, 5 + (i + 1) * 12).trim().replace(/D/ig, 'E').replace(/d/ig, 'e');
-                            vals.push(chunk ? parseFloat(chunk) : 0.0);
-                        }
-                        if (sys_type in iono_params) iono_params[sys_type] = vals;
-                    } else if (line.includes("END OF HEADER")) in_h = false;
-                    continue;
-                }
-                if (line.length > 8 && "GECSJ".includes(line[0]) && !isNaN(line.substring(1,3))) {
-                    if (sat && data.length >= 20) {
-                        if(!ephemeris[sat]) ephemeris[sat] = [];
-                        ephemeris[sat].push({'af0':data[0],'af1':data[1],'af2':data[2],'Crs':data[4],'Delta_n':data[5],'M0':data[6],'Cuc':data[7],'e':data[8],'Cus':data[9],'sqrtA':data[10],'Toe':data[11],'Cic':data[12],'OMEGA':data[13],'Cis':data[14],'i0':data[15],'Crc':data[16],'omega':data[17],'OMEGA_DOT':data[18],'IDOT':data[19]});
-                    }
-                    sat = line.substring(0,3).trim();
-                    data = [parseFloat(line.substring(23,42).replace(/D/ig,'E').replace(/d/ig,'e')), parseFloat(line.substring(42,61).replace(/D/ig,'E').replace(/d/ig,'e')), parseFloat(line.substring(61,80).replace(/D/ig,'E').replace(/d/ig,'e'))];
-                } else if (sat && line.startsWith('    ')) {
-                    for (let i = 4; i < 80; i += 19) {
-                        let chunk = line.substring(i, i + 19).trim();
-                        if (chunk) data.push(parseFloat(chunk.replace(/D/ig,'E').replace(/d/ig,'e')));
-                    }
-                }
-            }
-            if (sat && data.length >= 20) {
-                if(!ephemeris[sat]) ephemeris[sat] = [];
-                ephemeris[sat].push({'af0':data[0],'af1':data[1],'af2':data[2],'Crs':data[4],'Delta_n':data[5],'M0':data[6],'Cuc':data[7],'e':data[8],'Cus':data[9],'sqrtA':data[10],'Toe':data[11],'Cic':data[12],'OMEGA':data[13],'Cis':data[14],'i0':data[15],'Crc':data[16],'omega':data[17],'OMEGA_DOT':data[18],'IDOT':data[19]});
-            }
-            let alpha = iono_params['GPSA'].some(v=>v!==0) ? iono_params['GPSA'] : iono_params['BDSA'];
-            let beta = iono_params['GPSB'].some(v=>v!==0) ? iono_params['GPSB'] : iono_params['BDSB'];
-            ephemeris['_iono'] = {'alpha': alpha, 'beta': beta};
-            return ephemeris;
-        }
-
-        function aislarDiferenciasSimplesPPK(obs_b, obs_r) {
-            let sd_suavizada = {};
-            let roverTows = Object.keys(obs_r).map(Number).sort((a,b)=>a-b);
-            
-            for (let tow of roverTows) {
-                if (!(tow in obs_b)) continue;
-                
-                let sd_epoca = {'_meta': obs_r[tow]['_meta']};
-                for (let s in obs_r[tow]) {
-                    if (s === '_meta' || !(s in obs_b[tow])) continue;
-                    
-                    let d_b_s = obs_b[tow][s];
-                    let d_r_s = obs_r[tow][s];
-                    
-                    let freq = 'L1';
-                    if ('C5' in d_b_s && 'C5' in d_r_s && 'L5' in d_b_s && 'L5' in d_r_s) {
-                        freq = 'L5';
-                    } else if (!('C1' in d_b_s && 'C1' in d_r_s)) {
-                        continue;
-                    }
-                    
-                    let pr_b = freq === 'L5' ? d_b_s['C5'] : d_b_s['C1'];
-                    let pr_r = freq === 'L5' ? d_r_s['C5'] : d_r_s['C1'];
-                    
-                    // IMPORTANTE: Se ignoran los SNR para replicar la estructura lógica de app.py
-                    // donde se utiliza un valor por defecto o se elimina la ponderación del ruido.
-                    let sd_P = pr_r - pr_b;
-                    
-                    sd_epoca[s] = {
-                        'sd_P': sd_P,
-                        'pr_b': pr_b, 'pr_r': pr_r
-                    };
-                }
-                if (Object.keys(sd_epoca).length > 1) {
-                    sd_suavizada[tow] = sd_epoca;
-                }
-            }
-            return sd_suavizada;
-        }
-
-        function calcularDDPPKLambdaEpoca(sd_epoca, nav, X_b, Y_b, Z_b, tr, mask_angle) {
-            try {
-                let X_iter = X_b, Y_iter = Y_b, Z_iter = Z_b;
-                let [lat_b, lon_b, alt_b] = ecef_a_geodesicas(X_b, Y_b, Z_b);
-                
-                let iono = nav['_iono'] || {'alpha': [0,0,0,0], 'beta': [0,0,0,0]};
-                let alpha = iono['alpha'], beta = iono['beta'];
-                
-                let sat_positions = {};
-                for (let s in sd_epoca) {
-                    if (s === '_meta' || sd_epoca[s]['sd_P'] === null) continue;
-                    let tau = sd_epoca[s]['pr_r'] / C_LIGHT;
-                    let eph = seleccionarEfemerideOptima(nav[s] || [], tr-tau);
-                    if (!eph) continue;
-                    
-                    let sp = calcularPosicionSateliteWGS84(eph, tr-tau, tau, s[0]);
-                    if (sp) {
-                        let [el_r, az_r] = calcularTopocentricas(sp[0], sp[1], sp[2], X_iter, Y_iter, Z_iter);
-                        if (el_r >= mask_angle) {
-                            sat_positions[s] = {'sp': sp, 'el': el_r, 'az': az_r, 'sd_P': sd_epoca[s]['sd_P']};
-                        }
-                    }
-                }
-                
-                if (Object.keys(sat_positions).length < 4) return [null, "FAILED"];
-                
-                let sat_list_full = Object.keys(sat_positions);
-                let constellations = new Set(sat_list_full.map(s => s[0]));
-                let ref_sats = {};
-                let sat_list = [];
-                
-                for (let c of constellations) {
-                    let c_sats = sat_list_full.filter(s => s[0] === c);
-                    if (c_sats.length >= 2) {
-                        let ref = c_sats.reduce((max_s, curr_s) => sat_positions[curr_s]['el'] > sat_positions[max_s]['el'] ? curr_s : max_s, c_sats[0]);
-                        ref_sats[c] = ref;
-                        sat_list.push(...c_sats.filter(s => s !== ref));
-                    }
-                }
-                
-                if (sat_list.length < 3) return [null, "FAILED"];
-                
-                const calc_rho = (sp, X, Y, Z, lat, lon, alt, el, az) => {
-                    let dist = Math.sqrt(Math.pow(sp[0]-X,2) + Math.pow(sp[1]-Y,2) + Math.pow(sp[2]-Z,2));
-                    let tropo = calcularSaastamoinen(lat, alt, el);
-                    let iono_m = calcularKlobuchar(lat, lon, el, az, tr, alpha, beta);
-                    return [dist + tropo, iono_m, dist];
-                };
-
-                let prev_residuals = Array(sat_list.length).fill(0.0);
-
-                for (let iteracion = 0; iteracion < 8; iteracion++) {
-                    let [lat_it, lon_it, alt_it] = ecef_a_geodesicas(X_iter, Y_iter, Z_iter);
-                    let H = [];      
-                    let L = [];      
-                    
-                    let ref_calcs = {};
-                    for (let c in ref_sats) {
-                        let r_sat = ref_sats[c];
-                        let r_data = sat_positions[r_sat];
-                        let [rho_ref_r_base, iono_ref_r, dist_ref_r] = calc_rho(r_data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, r_data['el'], r_data['az']);
-                        let [el_ref_b, az_ref_b] = calcularTopocentricas(r_data['sp'][0], r_data['sp'][1], r_data['sp'][2], X_b, Y_b, Z_b);
-                        let [rho_ref_b_base, iono_ref_b, _] = calc_rho(r_data['sp'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_ref_b, az_ref_b);
-                        
-                        ref_calcs[c] = {
-                            'dist_ref_r': dist_ref_r,
-                            'SD_P_calc_ref': (rho_ref_r_base + iono_ref_r) - (rho_ref_b_base + iono_ref_b),
-                            'sp': r_data['sp'],
-                            'sd_P': r_data['sd_P']
-                        };
-                    }
-                    
-                    for (let i = 0; i < sat_list.length; i++) {
-                        let s = sat_list[i];
-                        let c = s[0];
-                        let data = sat_positions[s];
-                        let rc = ref_calcs[c];
-                        
-                        let [rho_i_r_base, iono_i_r, dist_i_r] = calc_rho(data['sp'], X_iter, Y_iter, Z_iter, lat_it, lon_it, alt_it, data['el'], data['az']);
-                        let [el_i_b, az_i_b] = calcularTopocentricas(data['sp'][0], data['sp'][1], data['sp'][2], X_b, Y_b, Z_b);
-                        let [rho_i_b_base, iono_i_b, _] = calc_rho(data['sp'], X_b, Y_b, Z_b, lat_b, lon_b, alt_b, el_i_b, az_i_b);
-                        
-                        let SD_P_calc_i = (rho_i_r_base + iono_i_r) - (rho_i_b_base + iono_i_b);
-                        let DD_P_calc = SD_P_calc_i - rc['SD_P_calc_ref'];
-                        
-                        let dx_geom = [
-                            -(data['sp'][0] - X_iter) / dist_i_r - (-(rc['sp'][0] - X_iter) / rc['dist_ref_r']),
-                            -(data['sp'][1] - Y_iter) / dist_i_r - (-(rc['sp'][1] - Y_iter) / rc['dist_ref_r']),
-                            -(data['sp'][2] - Z_iter) / dist_i_r - (-(rc['sp'][2] - Z_iter) / rc['dist_ref_r'])
-                        ];
-                        
-                        let DD_P_obs = data['sd_P'] - rc['sd_P'];
-                        L.push([DD_P_obs - DD_P_calc]);
-                        H.push(dx_geom);
-                    }
-
-                    let H_T = transposeMatrix(H);
-                    let N_mat = matmul(H_T, H);
-                    for (let r = 0; r < N_mat.length; r++) N_mat[r][r] += 1e-6;
-                    let U_vec = matmul(H_T, L);
-                    let Q = invertMatrixNxN(N_mat);
-                    if (!Q) return [null, "FAILED"];
-                    let Delta_X = matmul(Q, U_vec);
-                    X_iter += Delta_X[0][0]; Y_iter += Delta_X[1][0]; Z_iter += Delta_X[2][0];
-                    if (Math.max(Math.abs(Delta_X[0][0]), Math.abs(Delta_X[1][0]), Math.abs(Delta_X[2][0])) < 1e-3) return [[X_iter, Y_iter, Z_iter], "FLOAT"];
-                }
-                return [[X_iter, Y_iter, Z_iter], "FLOAT"];
-            } catch(e) { return [null, "FAILED"]; }
-        }
-
-        function estadisticaDesacoplada(coordenadas, conf_plani, conf_alti, err_hor_max, err_ver_max) {
-            if (!coordenadas || coordenadas.length === 0) return [null, null, null, 0, 0, 0, 0, 0.0];
-            let N_list = coordenadas.map(c => c[0]), E_list = coordenadas.map(c => c[1]), Z_list = coordenadas.map(c => c[2]);
-            let getMedian = (lst) => { let s = [...lst].sort((a,b)=>a-b); return s.length % 2 === 1 ? s[Math.floor(s.length/2)] : (s[s.length/2-1] + s[s.length/2]) / 2.0; };
-            let med_N = getMedian(N_list), med_E = getMedian(E_list), med_Z = getMedian(Z_list);
-            
-            let valid_coords = coordenadas.filter(c => {
-                let dh = Math.hypot(c[0] - med_N, c[1] - med_E);
-                let dv = Math.abs(c[2] - med_Z);
-                return (err_hor_max <= 0.0 || dh <= err_hor_max) && (err_ver_max <= 0.0 || dv <= err_ver_max);
+            document.querySelectorAll('#tabs-nav button').forEach(el => {
+                el.classList.remove('bg-blue-600');
+                el.classList.add('bg-gray-700');
             });
-
-            if (valid_coords.length === 0) return [null, null, null, 0, 0, 0, 0, 0.0];
-            
-            let N_v = valid_coords.map(c => c[0]), E_v = valid_coords.map(c => c[1]), Z_v = valid_coords.map(c => c[2]);
-            let calcMeanStd = (arr) => { let n = arr.length, m = arr.reduce((a,b)=>a+b, 0)/n, v = arr.reduce((acc, val)=>acc+(val-m)**2, 0)/n; return [m, Math.sqrt(v)]; };
-            let [N_m, N_s] = calcMeanStd(N_v), [E_m, E_s] = calcMeanStd(E_v), [Z_m, Z_s] = calcMeanStd(Z_v);
-            
-            let N_f = N_v.filter(x => Math.abs(x - N_m) <= conf_plani * N_s), E_f = E_v.filter(x => Math.abs(x - E_m) <= conf_plani * E_s), Z_f = Z_v.filter(x => Math.abs(x - Z_m) <= conf_alti * Z_s);
-            
-            return [
-                N_f.reduce((a,b)=>a+b, 0) / Math.max(1, N_f.length), 
-                E_f.reduce((a,b)=>a+b, 0) / Math.max(1, E_f.length), 
-                Z_f.reduce((a,b)=>a+b, 0) / Math.max(1, Z_f.length), 
-                N_s, E_s, Z_s, 
-                Math.min(N_f.length, E_f.length, Z_f.length), 
-                0.0
-            ];
+            document.getElementById('btn-tab' + num).classList.remove('bg-gray-700');
+            document.getElementById('btn-tab' + num).classList.add('bg-blue-600');
         }
-        // =====================================================================
-        // MANEJADORES DE PESTAÑAS (CLONACIÓN ESTRUCTURAL DE APP.PY)
-        // =====================================================================
-        window.procesarTab1JS = async function(e) {
+
+        async function submitForm(e, url, consoleId, nextTab) {
             e.preventDefault();
-            const display = document.getElementById('console1');
-            display.textContent = "> [SISTEMA] Iniciando Etapa 1: Emparejamiento Base Pivote y Rover de Calibración...\n";
+            const form = e.target;
+            const data = new FormData(form);
+            const display = document.getElementById(consoleId);
+            display.innerHTML = "> Procesando...\n";
+            
+            if (consoleId === 'console3') document.getElementById('btn-pdf-tab3')?.classList.add('hidden');
+            if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.add('hidden');
+            if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.add('hidden');
+
+            // INYECCIÓN DE ESTADO VECTORIAL SEGÚN PROTOCOLO OPCIÓN B (STATELESS)
+            if (url === '/tab3_calibrar') {
+                data.append('nav_content', window.gnssState.nav_content || '');
+                data.append('base_calib_homo_content', window.gnssState.base_calib_homo_content || '');
+                data.append('rover_calib_homo_content', window.gnssState.rover_calib_homo_content || '');
+            }
+            if (url === '/tab4_procesar') {
+                data.append('nav_content', window.gnssState.nav_content || '');
+                data.append('base_raw_content', window.gnssState.base_raw_content || '');
+                data.append('name_base_raw', window.gnssState.name_base_raw || 'base.obs');
+                data.append('name_nav_file', window.gnssState.name_nav_file || 'auto_nav.nav');
+            }
+
+            let fullOutput = "";
+
             try {
-                const fb = document.getElementById('obs_base').files[0];
-                const fr = document.getElementById('obs_rover').files[0];
-                window.MemoriaVolatil.baseFileName = fb.name;
-                window.MemoriaVolatil.roverFileName = fr.name;
-                
-                window.MemoriaVolatil.baseRaw = parseRinexObsCompleto(await fb.text());
-                window.MemoriaVolatil.roverRaw = parseRinexObsCompleto(await fr.text());
-                
-                let base_sinc = {}, rover_sinc = {};
-                let roverTows = Object.keys(window.MemoriaVolatil.roverRaw).map(Number).sort((a,b)=>a-b);
-                let total_epochs = roverTows.length;
-                
-                for (let tr of roverTows) {
-                    let base_interp = interpolar_base_a_rover(window.MemoriaVolatil.baseRaw, tr);
-                    if (base_interp) {
-                        base_sinc[tr] = base_interp;
-                        base_sinc[tr]['_meta'] = window.MemoriaVolatil.roverRaw[tr]['_meta'];
-                        rover_sinc[tr] = window.MemoriaVolatil.roverRaw[tr];
+                const response = await fetch(url, { method: 'POST', body: data });
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    let text = decoder.decode(value);
+                    
+                    fullOutput += text;
+                    let idx = fullOutput.indexOf('//DATA_START//');
+                    if (idx !== -1) {
+                        display.innerHTML = fullOutput.substring(0, idx);
+                    } else {
+                        display.innerHTML = fullOutput;
+                    }
+                    display.scrollTop = display.scrollHeight;
+                    
+                    if (text.includes('[SUCCESS]') || text.includes('[ERROR]')) {
+                        if (text.includes('[SUCCESS]') && nextTab) {
+                            document.getElementById('btn-tab' + nextTab).classList.remove('disabled-tab');
+                        }
+                        
+                        if (consoleId === 'console3') document.getElementById('btn-pdf-tab3')?.classList.remove('hidden');
+                        if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.remove('hidden');
+                        if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.remove('hidden');
+                        
+                        // EXTRACCIÓN Y RETENCIÓN DE DATOS EN CALIENTE (OPCIÓN B)
+                        if (url === '/tab1_homogenizar' && fullOutput.includes('[SUCCESS]')) {
+                            const parts = fullOutput.split('//DATA_START//');
+                            try {
+                                const dataJson = JSON.parse(parts[1].trim());
+                                for (let key in dataJson) {
+                                    window.gnssState[key] = dataJson[key];
+                                    localStorage.setItem(key, dataJson[key]);
+                                }
+                            } catch(err) { console.error("Error al interceptar el payload: ", err); }
+                        }
+
+                        if (url === '/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
+                            document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
+                            document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
+                            document.querySelector('#form-tab4 input[name="utm_cota"]').value = document.querySelector('#form-tab3 input[name="utm_cota"]').value;
+                            document.querySelector('#form-tab4 select[name="utm_hemisferio"]').value = document.querySelector('#form-tab3 select[name="utm_hemisferio"]').value;
+
+                            const m_mask = fullOutput.match(/Máscara Elevación[^:]*:\s*([0-9.-]+)/);
+                            const m_cp = fullOutput.match(/Filtro Sigma Plan[^:]*:\s*([0-9.-]+)/);
+                            const m_ca = fullOutput.match(/Filtro Sigma Alt[^:]*:\s*([0-9.-]+)/);
+                            const m_eh = fullOutput.match(/Error Permitido Horizontal[^:]*:\s*([0-9.-]+)/);
+                            const m_ev = fullOutput.match(/Error Permitido Vertical[^:]*:\s*([0-9.-]+)/);
+                            
+                            if (m_mask && m_mask[1]) document.querySelector('#form-tab4 input[name="param_mask"]').value = m_mask[1];
+                            if (m_cp && m_cp[1]) document.querySelector('#form-tab4 input[name="param_cp"]').value = m_cp[1];
+                            if (m_ca && m_ca[1]) document.querySelector('#form-tab4 input[name="param_ca"]').value = m_ca[1];
+                            if (m_eh && m_eh[1]) document.querySelector('#form-tab4 input[name="err_hor_max"]').value = m_eh[1];
+                            if (m_ev && m_ev[1]) document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1];
+
+                            if (m_mask && m_mask[1]) document.querySelector('#form-tab3 input[name="param_mask"]').value = m_mask[1];
+                            if (m_cp && m_cp[1]) document.querySelector('#form-tab3 input[name="param_cp"]').value = m_cp[1];
+                            if (m_ca && m_ca[1]) document.querySelector('#form-tab3 input[name="param_ca"]').value = m_ca[1];
+                            if (m_eh && m_eh[1]) document.querySelector('#form-tab3 input[name="err_hor_max"]').value = m_eh[1];
+                            if (m_ev && m_ev[1]) document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1];
+                        }
                     }
                 }
-                
-                if (Object.keys(base_sinc).length === 0) {
-                    display.textContent += "\n> [ERROR FATAL] Cero épocas en común."; return;
-                }
-                
-                window.MemoriaVolatil.baseSinc = base_sinc;
-                window.MemoriaVolatil.roverSinc = rover_sinc;
-                display.textContent += `\n[SUCCESS] Épocas Sincronizadas: ${Object.keys(base_sinc).length}\n`;
-                document.getElementById('btn-tab2').classList.remove('disabled-tab');
-            } catch (err) { display.textContent += `\n> [ERROR] ${err.message}`; }
-        };
+            } catch (err) {
+                display.innerHTML += "\n[ERROR] " + err.message;
+            }
+        }
 
-        window.procesarTab2JS = async function(e) {
+        async function submitTab2Form(e) {
             e.preventDefault();
+            const form = e.target;
+            const data = new FormData(form);
             const display = document.getElementById('console2');
+            display.innerHTML = "> Validando Estructura Orbital del Archivo Manual...\n";
+            document.getElementById('btn-pdf-tab2')?.classList.add('hidden');
+
+            let fullOutput = "";
             try {
-                const fn = document.getElementById('nav_file').files[0];
-                window.MemoriaVolatil.navFileName = fn.name;
-                window.MemoriaVolatil.navParsed = parseRinexNavReal(await fn.text());
-                display.textContent += `> [ÉXITO] Efemérides cargadas: ${fn.name}\n\n[SUCCESS]`;
-                document.getElementById('btn-tab3').classList.remove('disabled-tab');
-                document.getElementById('btn-tab4').classList.remove('disabled-tab');
-            } catch (err) { display.textContent += `\n> [ERROR] ${err.message}`; }
-        };
+                const response = await fetch('/tab2_efemerides', { method: 'POST', body: data });
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    let text = decoder.decode(value);
+                    fullOutput += text;
+                    
+                    let idx = fullOutput.indexOf('//DATA_START//');
+                    if (idx !== -1) {
+                        display.innerHTML = fullOutput.substring(0, idx);
+                    } else {
+                        display.innerHTML = fullOutput;
+                    }
+                    display.scrollTop = display.scrollHeight;
+                    
+                    if (text.includes('[SUCCESS]')) {
+                        document.getElementById('btn-tab3').classList.remove('disabled-tab');
+                        document.getElementById('btn-tab4').classList.remove('disabled-tab');
+                        document.getElementById('btn-pdf-tab2').classList.remove('hidden');
+                        
+                        const parts = fullOutput.split('//DATA_START//');
+                        try {
+                            const dataJson = JSON.parse(parts[1].trim());
+                            for (let key in dataJson) {
+                                window.gnssState[key] = dataJson[key];
+                                localStorage.setItem(key, dataJson[key]);
+                            }
+                        } catch(err) { console.error(err); }
+                    }
+                }
+            } catch (err) {
+                display.innerHTML += "\n[ERROR] " + err.message;
+            }
+        }
 
-        window.procesarTab3JS = async function(e) {
-            e.preventDefault();
-            const display = document.getElementById('console3');
-            // ... (Lógica de fase 1 y 2 inyectada aquí replicando exactamente app.py) ...
-            display.textContent += "> [SISTEMA] Motor listo para ejecutar secuencia de dos fases.\n";
-        };
+        function descargarTextoPDF(consoleId, nombreBase) {
+            try {
+                const display = document.getElementById(consoleId);
+                if (!display) return;
+                const { jsPDF } = window.jspdf;
+                
+                let lineasCrudas = display.innerText.split('\n');
+                let reporteLimpio = lineasCrudas.filter(l => 
+                    !l.includes('[SUCCESS]') && !l.includes('[PROGRESO]') && l.trim() !== ''
+                ).map(l => l.startsWith('>') ? l.substring(1).trim() : l);
 
-        window.procesarTab4JS = async function(e) {
-            e.preventDefault();
-            const display = document.getElementById('console4');
-            // ... (Procesamiento final replicando la lógica de tab4_procesar) ...
-        };
+                if (reporteLimpio.length === 0) return;
+
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
+                doc.setFont("courier", "normal");
+                doc.setFontSize(10);
+                
+                let pos_y = 50; 
+                const pos_x = 40; 
+                
+                for(let i=0; i < reporteLimpio.length; i++) {
+                    if (pos_y > 750) { 
+                        doc.addPage();
+                        pos_y = 50;
+                    }
+                    doc.text(reporteLimpio[i], pos_x, pos_y);
+                    pos_y += 14; 
+                }
+                doc.save(nombreBase + '_' + new Date().getTime() + '.pdf');
+            } catch (error) { console.error("Error PDF: ", error); }
+        }
+
+        // Recuperación automática de persistencia local en carga
+        if(window.gnssState.base_calib_homo_content && window.gnssState.nav_content) {
+            document.getElementById('btn-tab2').classList.remove('disabled-tab');
+            document.getElementById('btn-tab3').classList.remove('disabled-tab');
+            document.getElementById('btn-tab4').classList.remove('disabled-tab');
+        }
     </script>
 </body>
 </html>
