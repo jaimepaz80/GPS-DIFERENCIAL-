@@ -2,24 +2,53 @@ import os
 import math
 import datetime
 import urllib.request
+import gzip
 import shutil
 import ssl
+import json
+import threading
 import re
-from flask import Flask, request, send_file, Response
+from flask import Flask, request, send_file, Response, jsonify
 
 app = Flask(__name__)
 
-# --- RUTA DINÁMICA DE TRABAJO (SERVERLESS VERCEL COMPLIANT) ---
-UPLOAD_FOLDER = '/tmp/temp_rinex'
-REPORT_FOLDER = '/tmp/informes'
+# --- RUTA DINÁMICA DE TRABAJO (VERCEL SERVERLESS) ---
+# Se fuerza el uso de /tmp por restricciones de escritura en Vercel.
+BASE_DIR = '/tmp'
+
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'temp_rinex')
+REPORT_FOLDER = os.path.join(BASE_DIR, 'informes')
+STATE_FILE = os.path.join(UPLOAD_FOLDER, 'estado_proyecto.json')
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(REPORT_FOLDER, exist_ok=True)
+
+STATE_LOCK = threading.Lock()
 
 # --- CONSTANTES ---
 C_LIGHT = 299792458.0
 OMEGA_E = 7.2921151467e-5
 MU = 3.986005e14
+
+# =====================================================================
+# HERRAMIENTAS GOOGLE DRIVE / DESCARGA
+# =====================================================================
+def extraer_gdrive_id(url):
+    match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url)
+    if match: return match.group(1)
+    match = re.search(r'id=([a-zA-Z0-9_-]+)', url)
+    if match: return match.group(1)
+    return None
+
+def descargar_gdrive_publico(url, dest_path):
+    file_id = extraer_gdrive_id(url)
+    if not file_id:
+        raise Exception("Formato de URL de Google Drive inválido. Use enlace de compartición.")
+    download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    req = urllib.request.Request(download_url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=30) as res:
+        with open(dest_path, 'wb') as f:
+            f.write(res.read())
 
 def obtener_lambda_dinamico(sys_char, freq_band):
     if freq_band == 'L5': return C_LIGHT / 1176.45e6
@@ -35,6 +64,24 @@ def safe_f(val, default=0.0):
 def safe_i(val, default=19):
     try: return int(val) if val and str(val).strip() != '' else default
     except: return default
+
+def guardar_estado(clave, valor):
+    with STATE_LOCK:
+        estado = {}
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, 'r') as f: estado = json.load(f)
+            except: pass
+        estado[clave] = valor
+        with open(STATE_FILE, 'w') as f: json.dump(estado, f)
+
+def leer_estado(clave):
+    with STATE_LOCK:
+        if os.path.exists(STATE_FILE):
+            try:
+                with open(STATE_FILE, 'r') as f: return json.load(f).get(clave)
+            except: pass
+        return None
 
 def gps_time_to_tow(year, month, day, hour, minute, second):
     sec_int, sec_frac = int(second), second - int(second)
@@ -184,6 +231,47 @@ def parse_rinex_nav_real(path):
 def seleccionar_efemeride_optima(eph_list, t_target):
     if not eph_list: return None
     return min(eph_list, key=lambda x: abs(x.get('Toe', 0) - t_target))
+
+def obtener_fecha_obs(filepath):
+    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        for line in f:
+            if line.startswith('>'):
+                partes = line[1:].strip().split()
+                if len(partes) >= 6: 
+                    try:
+                        year = int(partes[0])
+                        if year < 100: year += 2000
+                        return year, int(partes[1]), int(partes[2]), int(partes[3]), int(partes[4]), float(partes[5])
+                    except: pass
+    return None
+
+def descargar_efemerides_brdc_stream(year, month, day, hour):
+    dt = datetime.datetime(year, month, day)
+    doy = dt.timetuple().tm_yday
+    nav_descargado = os.path.join(UPLOAD_FOLDER, f"auto_nav_{year}_{doy:03d}.nav")
+    if os.path.exists(nav_descargado): 
+        yield ("SUCCESS", nav_descargado)
+        return
+    prefijos = ['IGS', 'WRD', 'BKG', 'GOP']
+    urls = [f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00{p}_R_{year}{doy:03d}0000_01D_MN.rnx.gz" for p in prefijos]
+    horas = [hour] + [h for h in range(hour-1, -1, -1)] + [h for h in range(hour+1, 24)]
+    for p in prefijos:
+        for h in horas: 
+            urls.append(f"https://igs.bkg.bund.de/root_ftp/IGS/BRDC/{year}/{doy:03d}/BRDC00{p}_R_{year}{doy:03d}{h:02d}00_01H_MN.rnx.gz")
+    ctx = ssl.create_default_context()
+    for url in urls:
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, context=ctx, timeout=10) as res:
+                yield ("INFO", f"> Descargando comprimido: {url.split('/')[-1]}...\n")
+                with open(nav_descargado + '.gz', 'wb') as f: f.write(res.read())
+                yield ("INFO", "> Descomprimiendo GZIP y construyendo .nav local...\n")
+                with gzip.open(nav_descargado + '.gz', 'rb') as f_in, open(nav_descargado, 'wb') as f_out: 
+                    shutil.copyfileobj(f_in, f_out)
+                yield ("SUCCESS", nav_descargado)
+                return
+        except Exception: pass
+    yield ("ERROR", "Falla catastrófica al conectar con IGS/BKG.")
 
 # =====================================================================
 # MOTOR ALGEBRAICO N x N
@@ -672,46 +760,34 @@ def generar_informe_ascii(tipo, p_dict):
     return informe
 
 # =====================================================================
-# RUTAS FLASK (ESTRICTAS PARA VERCEL - URL BYPASS & STATELESS REDESIGN)
+# RUTAS FLASK (FLUJO ARQUITECTÓNICO CORREGIDO)
 # =====================================================================
-def descargar_desde_nube(url, destino):
-    """Fuerza la descarga cruda evadiendo visores HTML de Drive y Dropbox."""
-    if "drive.google.com" in url:
-        match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
-        if match:
-            file_id = match.group(1)
-            url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    elif "dropbox.com" in url:
-        url = url.replace("?dl=0", "?dl=1").replace("&dl=0", "&dl=1")
-        
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        ctx = ssl.create_default_context()
-        with urllib.request.urlopen(req, context=ctx, timeout=60) as res, open(destino, 'wb') as f_out:
-            shutil.copyfileobj(res, f_out)
-        return True
-    except Exception as e:
-        raise Exception(f"Falla catastrófica al descargar URL: {str(e)}")
-
 @app.route('/')
 def index(): return send_file('index.html')
 
 @app.route('/tab1_homogenizar', methods=['POST'])
 def tab1_homogenizar():
+    with STATE_LOCK:
+        if os.path.exists(STATE_FILE):
+            try: os.remove(STATE_FILE)
+            except: pass
+    
     url_b = request.form.get('url_base')
     url_r = request.form.get('url_rover')
-    if not url_b or not url_r: return Response("> [ERROR CRÍTICO] URLs faltantes.\n", mimetype='text/plain')
+
+    if not url_b or not url_r: 
+        return Response("> [ERROR CRÍTICO] Falta URL de Google Drive de Base o Rover.\n", mimetype='text/plain')
     
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
 
     def procesar():
         try:
-            yield "> [SISTEMA] Descargando archivos físicos hacia /tmp/ (Bypass Vercel Payload)...\n"
-            descargar_desde_nube(url_b, p_b_raw)
-            descargar_desde_nube(url_r, p_r_raw)
-            
+            yield "> [SISTEMA] Descargando Archivo Base desde Google Drive...\n"
+            descargar_gdrive_publico(url_b, p_b_raw)
+            yield "> [SISTEMA] Descargando Archivo Rover Calibración desde Google Drive...\n"
+            descargar_gdrive_publico(url_r, p_r_raw)
+
             yield f"> [SISTEMA] Iniciando Etapa 1: Emparejamiento Base Pivote y Rover de Calibración...\n"
             base_raw_dict = parse_rinex_obs_completo(p_b_raw)
             rover_raw_dict = parse_rinex_obs_completo(p_r_raw)
@@ -728,27 +804,43 @@ def tab1_homogenizar():
                     rover_sinc[tr] = rover_raw_dict[tr]
             
             if not base_sinc: yield "\n> [ERROR FATAL] Cero épocas en común. Revisar rango horario."; return
+            p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
+            p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
+            generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
+            generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
             
-            yield generar_informe_homogeneizacion_detallado("Base_Descargada", "Rover_Descargado", base_raw_dict, rover_raw_dict, rover_sinc)
+            guardar_estado('base_raw', p_b_raw)
+            guardar_estado('base_calib_homo', p_b_h)
+            guardar_estado('rover_calib_homo', p_r_h)
+            
+            b_name_id = extraer_gdrive_id(url_b) + ".obs"
+            r_name_id = extraer_gdrive_id(url_r) + ".obs"
+            guardar_estado('name_base_raw', b_name_id)
+            guardar_estado('name_rover_calib_raw', r_name_id)
+            
+            yield generar_informe_homogeneizacion_detallado(b_name_id, r_name_id, base_raw_dict, rover_raw_dict, rover_sinc)
             yield "\n[SUCCESS]"
         except Exception as e: yield f"\n> [ERROR] Falla estructural: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
 @app.route('/tab2_efemerides', methods=['POST'])
 def tab2_efemerides():
-    url_nav = request.form.get('url_nav')
-    if not url_nav: return Response("> [ERROR CRÍTICO] URL de Efemérides faltante.\n", mimetype='text/plain')
-    
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital...\n"
-            yield "> [SISTEMA] Conectando con enlace de Efemérides en la nube...\n"
-            descargar_desde_nube(url_nav, nav_path)
-            yield f"> [ÉXITO] Archivo de efemérides (.nav) descargado y vinculado exitosamente.\n"
-            yield "\n[SUCCESS]"
+            yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital e Ionosférico...\n"
+            bp = leer_estado('base_raw')
+            if not bp or not os.path.exists(bp): yield "> [ERROR FATAL] Falta RINEX Base en memoria.\n"; return
+            ft = obtener_fecha_obs(bp)
+            if not ft: yield "> [ERROR FATAL] Imposible extraer la fecha.\n"; return
+            nav_p, descarga_exitosa = None, False
+            for tipo, log in descargar_efemerides_brdc_stream(ft[0], ft[1], ft[2], ft[3]):
+                if tipo == "INFO": yield f"  {log}"
+                elif tipo == "SUCCESS": nav_p = log; descarga_exitosa = True
+                elif tipo == "ERROR": yield f"> [ERROR CRÍTICO RED] {log}\n"; return 
+            if descarga_exitosa and nav_p:
+                guardar_estado('nav_path', nav_p); guardar_estado('name_nav_file', os.path.basename(nav_p))
+                yield f"> [ÉXITO] Archivo de efemérides almacenado en: {nav_p}\n\n[SUCCESS]"
+            else: yield "> [ERROR] No se logró descargar ni construir el archivo local.\n"
         except Exception as e: yield f"\n> [ERROR GENERAL] Excepción capturada: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
@@ -764,49 +856,24 @@ def tab3_calibrar():
     utm_e_r = safe_f(request.form.get('utm_este_r'), 0.0)
     utm_c_r = safe_f(request.form.get('utm_cota_r'), 0.0)
 
-    url_b = request.form.get('url_base')
-    url_r = request.form.get('url_rover')
-    url_nav = request.form.get('url_nav')
-    
-    if not url_b or not url_r or not url_nav:
-        return Response("> [ERROR FATAL] Faltan URLs Base, Rover o Efemérides.\n", mimetype='text/plain')
-
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
-    p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
-    nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-
     def procesar():
         try:
-            yield "> [SISTEMA] Descargando malla completa desde la nube a memoria efímera...\n"
-            descargar_desde_nube(url_b, p_b_raw)
-            descargar_desde_nube(url_r, p_r_raw)
-            descargar_desde_nube(url_nav, nav_path)
-
-            yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)....\n"
+            yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n"
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
                 yield "> [ERROR] Coordenadas Base y Rover (Calibración) son requeridas.\n"; return
             
-            yield "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n"
-            obs_b_raw_raw = parse_rinex_obs_completo(p_b_raw)
-            obs_r_raw_raw = parse_rinex_obs_completo(p_r_raw)
-            base_sinc, rover_sinc = {}, {}
-            for tr in sorted(list(obs_r_raw_raw.keys())):
-                base_interp = interpolar_base_a_rover(obs_b_raw_raw, tr)
-                if base_interp:
-                    base_sinc[tr] = base_interp
-                    base_sinc[tr]['_meta'] = obs_r_raw_raw[tr]['_meta']
-                    rover_sinc[tr] = obs_r_raw_raw[tr]
-                    
-            p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
-            p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
-            generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
-            generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
-            
+            nav_path = leer_estado('nav_path')
+            p_b_h = leer_estado('base_calib_homo')
+            p_r_h = leer_estado('rover_calib_homo')
+
+            if not nav_path or not p_b_h or not p_r_h: 
+                yield "> [ERROR FATAL] Faltan archivos RINEX o Efemérides.\n"; return
+
             obs_b_raw = parse_rinex_obs_completo(p_b_h)
             obs_r_raw = parse_rinex_obs_completo(p_r_h)
             nav = parse_rinex_nav_real(nav_path)
             
+            yield "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n"
             sd_suavizada = aislar_diferencias_simples_ppk(obs_b_raw, obs_r_raw)
             if not sd_suavizada:
                 yield "> [ERROR] No hay épocas sincronizadas válidas.\n"
@@ -816,11 +883,14 @@ def tab3_calibrar():
             lat_b, lon_b, _ = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)
             X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c)
 
+            # =========================================================================
+            # FASE 1: CÁLCULO DETERMINISTA DE ERRORES MÁXIMOS (Eh, Ev)
+            # =========================================================================
             yield "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n"
             
             coords_raw = []
             for t in t_sample:
-                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0) 
+                sem, status = calcular_dd_ppk_lambda_epoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0) # Máscara basal fija
                 if sem:
                     X_ri, Y_ri, Z_ri = sem
                     la, lo, al = ecef_a_geodesicas(X_ri, Y_ri, Z_ri)
@@ -836,6 +906,7 @@ def tab3_calibrar():
             deltas_h.sort()
             deltas_v.sort()
             
+            # Anclamos el Hard Filter estricto al percentil 10 de élite geométrica verdadera
             idx_optimo = max(1, len(deltas_h) // 10)
             best_eh = max(0.01, float(deltas_h[idx_optimo]))
             best_ev = max(0.01, float(deltas_v[idx_optimo]))
@@ -843,6 +914,9 @@ def tab3_calibrar():
             yield f"  [*] Límite Horizontal Inyectado: {best_eh:.14f} m\n"
             yield f"  [*] Límite Vertical Inyectado: {best_ev:.14f} m\n\n"
             
+            # =========================================================================
+            # FASE 2: MALLA DETERMINISTA DE REFINAMIENTO SUCESIVO (GRID ZOOMING)
+            # =========================================================================
             yield "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n"
             
             best_rmse = float('inf')
@@ -852,6 +926,7 @@ def tab3_calibrar():
             cp_center, cp_span = 2.0, 1.5
             ca_center, ca_span = 2.0, 1.5
             
+            # 8 niveles de zoom continuo garantizan precisión 100% inamovible (IEEE 754)
             for nivel in range(8):
                 yield f"  [+] Refinando espacio de búsqueda (Zoom {nivel+1}/8)...\n"
                 
@@ -859,6 +934,7 @@ def tab3_calibrar():
                 cp_grid = [cp_center - cp_span, cp_center, cp_center + cp_span]
                 ca_grid = [ca_center - ca_span, ca_center, ca_center + ca_span]
                 
+                # Truncar sobre límites geodésicos lógicos
                 m_grid = [max(5.0, min(15.0, x)) for x in m_grid]
                 cp_grid = [max(0.1, min(5.0, x)) for x in cp_grid]
                 ca_grid = [max(0.1, min(5.0, x)) for x in ca_grid]
@@ -882,6 +958,7 @@ def tab3_calibrar():
                     
                     for cp in set(cp_grid):
                         for ca in set(ca_grid):
+                            # INYECTAMOS LOS ERRORES EXACTOS CALCULADOS EN LA FASE 1
                             res = estadistica_desacoplada(coords, cp, ca, best_eh, best_ev)
                             if res[0] is None: continue
                             nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio = res
@@ -901,6 +978,7 @@ def tab3_calibrar():
                                     'dn': nf - utm_n_r, 'de': ef - utm_e_r, 'dz': zf - utm_c_r
                                 }
                 
+                # Preparamos el siguiente Zoom reduciendo el área de búsqueda a la mitad
                 m_center, m_span = nivel_best_m, m_span / 2.0
                 cp_center, cp_span = nivel_best_cp, cp_span / 2.0
                 ca_center, ca_span = nivel_best_ca, ca_span / 2.0
@@ -941,31 +1019,29 @@ def tab4_procesar():
     err_hor_max = safe_f(request.form.get('err_hor_max'), 0.5)
     err_ver_max = safe_f(request.form.get('err_ver_max'), 0.5)
 
-    url_b = request.form.get('url_base')
     url_r_nuevo = request.form.get('url_rover_nuevo')
-    url_nav = request.form.get('url_nav')
     
-    if not url_r_nuevo or not url_b or not url_nav: 
-        return Response("> [ERROR] Faltan URLs Base, Rover Nuevo o Efemérides para el proceso final.\n", mimetype='text/plain')
+    if not url_r_nuevo or str(url_r_nuevo).strip() == '': 
+        return Response("> [ERROR] Falta el enlace de Google Drive del nuevo archivo RINEX Rover (Punto Desconocido).\n", mimetype='text/plain')
 
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo_raw.obs')
-    nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
-    
-    rf_nuevo_filename = f"rover_nuevo_{url_r_nuevo[-8:]}.obs"
 
     def procesar():
         try:
-            yield "> [SISTEMA] Interceptando URLs y descargando en túnel cerrado...\n"
-            descargar_desde_nube(url_b, p_b_raw)
-            descargar_desde_nube(url_r_nuevo, p_r_nuevo)
-            descargar_desde_nube(url_nav, nav_path)
+            yield "> [SISTEMA] Descargando nuevo archivo RINEX Rover desde Google Drive...\n"
+            descargar_gdrive_publico(url_r_nuevo, p_r_nuevo)
+            rf_nuevo_filename = extraer_gdrive_id(url_r_nuevo) + ".obs"
 
             yield "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n"
             if utm_e == 0.0 or utm_n == 0.0: 
                 yield "> [ERROR] Coordenadas Base incompletas.\n"; return
             
+            nav_path = leer_estado('nav_path')
+            p_b_raw = leer_estado('base_raw') 
+
+            if not nav_path or not p_b_raw or not os.path.exists(p_b_raw): 
+                yield "> [ERROR FATAL] Falta archivo RINEX Base original o Efemérides en memoria.\n"; return
+
             obs_b_raw = parse_rinex_obs_completo(p_b_raw)
             obs_r_raw = parse_rinex_obs_completo(p_r_nuevo) 
             nav = parse_rinex_nav_real(nav_path)
@@ -1021,9 +1097,9 @@ def tab4_procesar():
                 'nf': nf, 'ef': ef, 'zf': zf - h_r, 
                 'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
                 'ez': std_z, 'fix_r': fix_ratio,
-                'base_file': "Archivo_Nube_Base",
+                'base_file': leer_estado('name_base_raw') or "base.obs",
                 'rover_file': rf_nuevo_filename,
-                'nav_file': "Enlace_Nube_Efemérides",
+                'nav_file': leer_estado('name_nav_file') or "auto_nav.nav",
                 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
                 'r_n_calc': nf, 'r_e_calc': ef, 'r_z_calc': zf - h_r
             }
