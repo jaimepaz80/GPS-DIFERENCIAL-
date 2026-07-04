@@ -201,7 +201,6 @@
 
         document.getElementById('btn-logout').addEventListener('click', () => signOut(auth));
 
-        // Equivalente estricto al STATE_LOCK y JSON de app.py
         window.MemoriaVolatil = { 
             baseRaw: null, roverRaw: null, baseSinc: null, navParsed: null, 
             baseFileName: "", roverFileName: "", navFileName: "" 
@@ -472,7 +471,6 @@
             let start = 0;
             let len = text.length;
             
-            // Reemplazo del split() masivo: iteración perezosa por índice para salvar RAM
             while (start < len) {
                 let end = text.indexOf('\n', start);
                 if (end === -1) end = len;
@@ -557,7 +555,6 @@
                 for (let sat of sats) {
                     let data = obs_dict[tow][sat];
                     let s_data = {};
-                    // Truncado estricto forzado a Number para evitar desviaciones binarias IEEE 754
                     if ('C1' in data && data['C1'] > 0) s_data['C1'] = Number(data['C1'].toFixed(3));
                     if ('L1' in data && data['L1'] > 0) s_data['L1'] = Number(data['L1'].toFixed(3));
                     if ('C5' in data && data['C5'] > 0) s_data['C5'] = Number(data['C5'].toFixed(3));
@@ -840,10 +837,12 @@
             for (let c of coordenadas) {
                 let dh = Math.hypot(c[0] - med_N, c[1] - med_E);
                 let dv = Math.abs(c[2] - med_Z);
+                // Replica exacta de la condición if de app.py
                 if ((err_hor_max > 0.0 && dh > err_hor_max) || (err_ver_max > 0.0 && dv > err_ver_max)) continue;
                 valid_coords.push(c);
             }
 
+            // Si todos son descartados por el hard filter, aborta como en Python
             if (valid_coords.length === 0) return [null, null, null, 0, 0, 0, 0, 0.0];
             
             let N_v = valid_coords.map(c => c[0]);
@@ -868,16 +867,13 @@
             
             let fix_ratio = (f_v.length / valid_coords.length) * 100;
             
-            let len_N = Math.max(1, N_f.length);
-            let len_E = Math.max(1, E_f.length);
-            let len_Z = Math.max(1, Z_f.length);
-
+            // Replicación exacta del bloque final de app.py: divisiones seguras y recuento estricto con Math.min()
             return [
-                N_f.reduce((a,b)=>a+b, 0) / len_N, 
-                E_f.reduce((a,b)=>a+b, 0) / len_E, 
-                Z_f.reduce((a,b)=>a+b, 0) / len_Z, 
+                N_f.reduce((a,b)=>a+b, 0) / Math.max(1, N_f.length), 
+                E_f.reduce((a,b)=>a+b, 0) / Math.max(1, E_f.length), 
+                Z_f.reduce((a,b)=>a+b, 0) / Math.max(1, Z_f.length), 
                 N_s, E_s, Z_s, 
-                Math.min(len_N, len_E, len_Z), 
+                Math.min(N_f.length, E_f.length, Z_f.length), 
                 fix_ratio
             ];
         }
@@ -894,7 +890,6 @@
                 window.MemoriaVolatil.baseFileName = fb.name;
                 window.MemoriaVolatil.roverFileName = fr.name;
                 
-                // Iteración de lectura optimizada sin split()
                 window.MemoriaVolatil.baseRaw = parseRinexObsCompleto(await fb.text());
                 window.MemoriaVolatil.roverRaw = parseRinexObsCompleto(await fr.text());
                 
@@ -1011,11 +1006,14 @@
                 let [lat_b, lon_b, _] = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem);
                 let [X_b, Y_b, Z_b] = geodesicas_a_ecef(lat_b, lon_b, utm_c);
 
+                // =========================================================================
+                // FASE 1: CÁLCULO DETERMINISTA DE ERRORES MÁXIMOS (Eh, Ev) - REPLICA EXACTA
+                // =========================================================================
                 display.textContent += "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n";
                 
                 let coords_raw = [];
                 for (let t of t_sample) {
-                    let [sem, status] = calcularDDPPKLambdaEpoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0);
+                    let [sem, status] = calcularDDPPKLambdaEpoca(sd_suavizada[t], nav, X_b, Y_b, Z_b, t, 10.0); // Máscara basal fija
                     if (sem) {
                         let [X_ri, Y_ri, Z_ri] = sem;
                         let [la, lo, al] = ecef_a_geodesicas(X_ri, Y_ri, Z_ri);
@@ -1031,6 +1029,7 @@
                 let deltas_h = coords_raw.map(c => Math.hypot(c[0] - utm_n_r, c[1] - utm_e_r)).sort((a,b)=>a-b);
                 let deltas_v = coords_raw.map(c => Math.abs(c[2] - utm_c_r)).sort((a,b)=>a-b);
 
+                // Anclamos el Hard Filter estricto al percentil 10
                 let idx_optimo = Math.max(1, Math.floor(deltas_h.length / 10));
                 let best_eh = Math.max(0.01, deltas_h[idx_optimo]);
                 let best_ev = Math.max(0.01, deltas_v[idx_optimo]);
@@ -1038,6 +1037,9 @@
                 display.textContent += `  [*] Límite Horizontal Inyectado: ${best_eh.toFixed(14)} m\n`;
                 display.textContent += `  [*] Límite Vertical Inyectado: ${best_ev.toFixed(14)} m\n\n`;
 
+                // =========================================================================
+                // FASE 2: MALLA DETERMINISTA DE REFINAMIENTO SUCESIVO (GRID ZOOMING)
+                // =========================================================================
                 display.textContent += "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n";
                 
                 let best_rmse = Infinity;
@@ -1052,9 +1054,10 @@
                     display.scrollTop = display.scrollHeight;
                     await new Promise(r => setTimeout(r, 5));
 
-                    let m_grid_raw = [m_center - m_span, m_center, m_center + m_span];
-                    let cp_grid_raw = [cp_center - cp_span, cp_center, cp_center + cp_span];
-                    let ca_grid_raw = [ca_center - ca_span, ca_center, ca_center + ca_span];
+                    // ORDEN ESTRICTO: Centro, Arriba, Abajo. Esto emula el set() de Python y protege contra sobreajuste al 0.1
+                    let m_grid_raw = [m_center, m_center + m_span, m_center - m_span];
+                    let cp_grid_raw = [cp_center, cp_center + cp_span, cp_center - cp_span];
+                    let ca_grid_raw = [ca_center, ca_center + ca_span, ca_center - ca_span];
 
                     let m_grid = [...new Set(m_grid_raw.map(x => Math.max(5.0, Math.min(15.0, x))))];
                     let cp_grid = [...new Set(cp_grid_raw.map(x => Math.max(0.1, Math.min(5.0, x))))];
@@ -1080,6 +1083,7 @@
 
                         for (let cp of cp_grid) {
                             for (let ca of ca_grid) {
+                                // INYECTAMOS LOS ERRORES EXACTOS (best_eh, best_ev) DE LA FASE 1
                                 let res = estadisticaDesacoplada(coords, cp, ca, best_eh, best_ev);
                                 if (res[0] === null) continue;
                                 let [nf, ef, zf, std_n, std_e, std_z, ret, fix_ratio] = res;
@@ -1244,6 +1248,7 @@
                 }
 
                 let res_estadistica = estadisticaDesacoplada(coords, p_cp, p_ca, err_hor_max, err_ver_max);
+                // ESTRICTO CONTROL APP.PY: Si devuelve nulo, abortamos y mostramos error, impidiendo el 0.000 en el frontend
                 if (res_estadistica[0] === null) {
                     display.textContent += "\n> [ERROR] Operación Abortada: El 100% de las épocas superan el Error Máximo configurado.\n"; return;
                 }
