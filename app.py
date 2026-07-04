@@ -805,7 +805,15 @@ def tab3_calibrar():
                     base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']
                     rover_sinc[tr] = obs_r_raw[tr]
 
-            sd_suavizada = aislar_diferencias_simples_ppk(base_sinc, rover_sinc)
+            p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
+            p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
+            generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
+            generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
+
+            obs_b_homo = parse_rinex_obs_completo(p_b_h)
+            obs_r_homo = parse_rinex_obs_completo(p_r_h)
+
+            sd_suavizada = aislar_diferencias_simples_ppk(obs_b_homo, obs_r_homo)
             if not sd_suavizada:
                 yield "> [ERROR] No hay épocas sincronizadas válidas.\n"
                 return
