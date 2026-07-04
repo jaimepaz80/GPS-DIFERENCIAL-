@@ -21,7 +21,7 @@ OMEGA_E = 7.2921151467e-5
 MU = 3.986005e14
 
 def adaptar_url_nube(url):
-    """Convierte links comunes a links de descarga directa (Bypass)"""
+    """Convierte links comunes a links de descarga directa (Bypass Vercel)"""
     if "dropbox.com" in url and "?dl=0" in url:
         return url.replace("?dl=0", "?dl=1")
     if "drive.google.com/file/d/" in url:
@@ -374,7 +374,7 @@ def calcular_posicion_satelite_wgs84(eph, t_emision, tau_vuelo, sys_char='G'):
     return (xs * math.cos(theta) + ys * math.sin(theta), -xs * math.sin(theta) + ys * math.cos(theta), zs, dt_sat)
 
 # =====================================================================
-# EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL)
+# EL CORAZÓN DE PROCESAMIENTO DGPS (CÓDIGO DIFERENCIAL ORIGINAL LITERAl)
 # =====================================================================
 def aislar_diferencias_simples_ppk(obs_b, obs_r):
     sd_suavizada = {}
@@ -684,7 +684,7 @@ def generar_informe_ascii(p_dict):
     return informe
 
 # =====================================================================
-# RUTAS FLASK (FLUJO ARQUITECTÓNICO OPCIÓN C: BYPASS SERVER-TO-SERVER TOTAL)
+# RUTAS FLASK (FLUJO ARQUITECTÓNICO OPCIÓN C: BYPASS SERVER-TO-SERVER)
 # =====================================================================
 @app.route('/')
 def index(): return send_file('index.html')
@@ -785,7 +785,6 @@ def tab3_calibrar():
             
             req_n = urllib.request.Request(adaptar_url_nube(url_nav), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_n, timeout=45) as res, open(nav_path, 'wb') as f: shutil.copyfileobj(res, f)
-            nav = parse_rinex_nav_real(nav_path)
 
             req_b = urllib.request.Request(adaptar_url_nube(url_base), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_b, timeout=45) as res, open(p_b_raw, 'wb') as f: shutil.copyfileobj(res, f)
@@ -805,13 +804,17 @@ def tab3_calibrar():
                     base_sinc[tr]['_meta'] = obs_r_raw[tr]['_meta']
                     rover_sinc[tr] = obs_r_raw[tr]
 
+            # [REPLICACIÓN DEL CÓDIGO ORIGINAL]: Se obliga a crear los archivos truncados 
+            # en /tmp antes de mandarlos a la matriz, para igualar los filtros permisivos.
             p_b_h = os.path.join(UPLOAD_FOLDER, 'base_calib_homo.obs')
             p_r_h = os.path.join(UPLOAD_FOLDER, 'rover_calib_homo.obs')
             generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
             generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
 
+            # [COPIA LITERAL ORIGINAL]: Leer los archivos físicos alterados
             obs_b_homo = parse_rinex_obs_completo(p_b_h)
             obs_r_homo = parse_rinex_obs_completo(p_r_h)
+            nav = parse_rinex_nav_real(nav_path)
 
             sd_suavizada = aislar_diferencias_simples_ppk(obs_b_homo, obs_r_homo)
             if not sd_suavizada:
@@ -964,7 +967,6 @@ def tab4_procesar():
             nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
             req_n = urllib.request.Request(adaptar_url_nube(url_nav), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_n, timeout=45) as res, open(nav_path, 'wb') as f: shutil.copyfileobj(res, f)
-            nav = parse_rinex_nav_real(nav_path)
             
             p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
             p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo.obs')
@@ -974,8 +976,10 @@ def tab4_procesar():
             req_r = urllib.request.Request(adaptar_url_nube(url_rover_nuevo), headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req_r, timeout=45) as res, open(p_r_nuevo, 'wb') as f: shutil.copyfileobj(res, f)
             
+            # [COPIA LITERAL ORIGINAL]: Este es el mismo bloque de tu código en tab4
             obs_b_raw = parse_rinex_obs_completo(p_b_raw)
             obs_r_raw = parse_rinex_obs_completo(p_r_nuevo)
+            nav = parse_rinex_nav_real(nav_path)
             
             yield "[PROGRESO] Emparejamiento Temporal Dinámico contra la Base Pivote (Tolerancia 0.05s)...\n"
             rover_tows = sorted(list(obs_r_raw.keys()))
