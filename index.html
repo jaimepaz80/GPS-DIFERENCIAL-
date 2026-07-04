@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GNSS Engine L1-Sinc DGPS</title>
+    <title>GNSS Engine L1-Sinc DGPS (Opción C)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -50,19 +50,20 @@
         </nav>
 
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Enlaces Directos de Observación (RINEX .obs)</h2>
+            <p class="text-sm text-yellow-400 mb-4">Pegue enlaces de descarga directa (Drive o Dropbox con ?dl=1) para evitar saturar su red.</p>
             <form id="form-tab1" onsubmit="submitForm(event, '/tab1_homogenizar', 'console1', 2)">
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
-                        <input type="file" name="obs_base" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <label class="block text-sm mb-1">URL Archivo Base Pivote (Sesión Completa):</label>
+                        <input type="url" name="url_base" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                     <div>
-                        <label class="block text-sm mb-1">Archivo Rover 1 (Punto de Calibración):</label>
-                        <input type="file" name="obs_rover" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <label class="block text-sm mb-1">URL Archivo Rover 1 (Punto Calibración):</label>
+                        <input type="url" name="url_rover" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                     </div>
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Sincronizar Épocas Base/Calibración</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Verificar Integridad de Épocas</button>
             </form>
             <div id="console1" class="console p-4 mt-4 h-64 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab1" onclick="descargarTextoPDF('console1', 'Informe_Sincronizacion')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar Informe de Épocas PDF</button>
@@ -84,7 +85,7 @@
 
         <section id="tab3" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
             <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Investigación de Operaciones: Búsqueda y Calibración Exacta</h2>
-            <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754). Minimiza el RMSE contra una coordenada Rover conocida optimizando 5 variables críticas.</p>
+            <p class="text-sm text-gray-400 mb-4">Simulador Monte Carlo pentadimensional continuo (14 decimales IEEE 754).</p>
             <form id="form-tab3" onsubmit="submitForm(event, '/tab3_calibrar', 'console3', 4)">
                 
                 <div class="grid grid-cols-3 gap-4 mb-4">
@@ -134,8 +135,8 @@
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <h3 class="text-blue-400 font-bold text-sm mb-2">NUEVO ARCHIVO ROVER (PUNTO DESCONOCIDO)</h3>
-                        <label class="block text-xs">Cargar Archivo RINEX Rover (.obs):</label>
-                        <input type="file" name="obs_rover_nuevo" required class="w-full bg-gray-700 p-2 rounded border border-blue-500">
+                        <label class="block text-xs">URL Archivo RINEX Rover Nuevo:</label>
+                        <input type="url" name="url_rover_nuevo" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-blue-500">
                     </div>
                 </div>
 
@@ -215,18 +216,14 @@
             errBox.classList.add('hidden');
 
             createUserWithEmailAndPassword(auth, email, pass)
-                .then(() => {
-                    alert("Usuario registrado e iniciado con éxito.");
-                })
+                .then(() => alert("Usuario registrado e iniciado con éxito."))
                 .catch(error => {
                     errBox.innerText = "> Error registro: " + error.message;
                     errBox.classList.remove('hidden');
                 });
         };
 
-        window.ejecutarLogout = function() {
-            signOut(auth);
-        };
+        window.ejecutarLogout = function() { signOut(auth); };
 
         onAuthStateChanged(auth, user => {
             if (user) {
@@ -241,13 +238,9 @@
 
     <script>
         window.gnssState = {
-            base_raw_content: localStorage.getItem('base_raw_content') || '',
-            base_calib_homo_content: localStorage.getItem('base_calib_homo_content') || '',
-            rover_calib_homo_content: localStorage.getItem('rover_calib_homo_content') || '',
-            nav_content: localStorage.getItem('nav_content') || '',
-            name_base_raw: localStorage.getItem('name_base_raw') || '',
-            name_rover_calib_raw: localStorage.getItem('name_rover_calib_raw') || '',
-            name_nav_file: localStorage.getItem('name_nav_file') || ''
+            url_base: localStorage.getItem('url_base') || '',
+            url_rover: localStorage.getItem('url_rover') || '',
+            nav_content: localStorage.getItem('nav_content') || ''
         };
 
         function switchTab(num) {
@@ -267,23 +260,21 @@
             const form = e.target;
             const data = new FormData(form);
             const display = document.getElementById(consoleId);
-            display.innerHTML = "> Procesando...\n";
+            display.innerHTML = "> Inyectando protocolo de conexión directa Vercel-Nube...\n";
             
             if (consoleId === 'console3') document.getElementById('btn-pdf-tab3')?.classList.add('hidden');
             if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.add('hidden');
             if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.add('hidden');
 
-            // INYECCIÓN DE ESTADO VECTORIAL SEGÚN PROTOCOLO OPCIÓN B (STATELESS)
+            // INYECCIÓN DE ESTADO SERVERLESS (OPCIÓN C)
             if (url === '/tab3_calibrar') {
-                data.append('nav_content', window.gnssState.nav_content || '');
-                data.append('base_calib_homo_content', window.gnssState.base_calib_homo_content || '');
-                data.append('rover_calib_homo_content', window.gnssState.rover_calib_homo_content || '');
+                data.append('url_base', window.gnssState.url_base);
+                data.append('url_rover', window.gnssState.url_rover);
+                data.append('nav_content', window.gnssState.nav_content);
             }
             if (url === '/tab4_procesar') {
-                data.append('nav_content', window.gnssState.nav_content || '');
-                data.append('base_raw_content', window.gnssState.base_raw_content || '');
-                data.append('name_base_raw', window.gnssState.name_base_raw || 'base.obs');
-                data.append('name_nav_file', window.gnssState.name_nav_file || 'auto_nav.nav');
+                data.append('url_base', window.gnssState.url_base);
+                data.append('nav_content', window.gnssState.nav_content);
             }
 
             let fullOutput = "";
@@ -298,12 +289,7 @@
                     let text = decoder.decode(value);
                     
                     fullOutput += text;
-                    let idx = fullOutput.indexOf('//DATA_START//');
-                    if (idx !== -1) {
-                        display.innerHTML = fullOutput.substring(0, idx);
-                    } else {
-                        display.innerHTML = fullOutput;
-                    }
+                    display.innerHTML = fullOutput;
                     display.scrollTop = display.scrollHeight;
                     
                     if (text.includes('[SUCCESS]') || text.includes('[ERROR]')) {
@@ -315,18 +301,17 @@
                         if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.remove('hidden');
                         if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.remove('hidden');
                         
-                        // EXTRACCIÓN Y RETENCIÓN DE DATOS EN CALIENTE (OPCIÓN B)
+                        // CAPTURAR URLs DEL FORMULARIO 1
                         if (url === '/tab1_homogenizar' && fullOutput.includes('[SUCCESS]')) {
-                            const parts = fullOutput.split('//DATA_START//');
-                            try {
-                                const dataJson = JSON.parse(parts[1].trim());
-                                for (let key in dataJson) {
-                                    window.gnssState[key] = dataJson[key];
-                                    localStorage.setItem(key, dataJson[key]);
-                                }
-                            } catch(err) { console.error("Error al interceptar el payload: ", err); }
+                            const uBase = form.querySelector('input[name="url_base"]').value;
+                            const uRover = form.querySelector('input[name="url_rover"]').value;
+                            localStorage.setItem('url_base', uBase);
+                            localStorage.setItem('url_rover', uRover);
+                            window.gnssState.url_base = uBase;
+                            window.gnssState.url_rover = uRover;
                         }
 
+                        // TRANSFERIR PARÁMETROS CALIBRADOS
                         if (url === '/tab3_calibrar' && fullOutput.includes('[SUCCESS]')) {
                             document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
                             document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
@@ -339,23 +324,15 @@
                             const m_eh = fullOutput.match(/Error Permitido Horizontal[^:]*:\s*([0-9.-]+)/);
                             const m_ev = fullOutput.match(/Error Permitido Vertical[^:]*:\s*([0-9.-]+)/);
                             
-                            if (m_mask && m_mask[1]) document.querySelector('#form-tab4 input[name="param_mask"]').value = m_mask[1];
-                            if (m_cp && m_cp[1]) document.querySelector('#form-tab4 input[name="param_cp"]').value = m_cp[1];
-                            if (m_ca && m_ca[1]) document.querySelector('#form-tab4 input[name="param_ca"]').value = m_ca[1];
-                            if (m_eh && m_eh[1]) document.querySelector('#form-tab4 input[name="err_hor_max"]').value = m_eh[1];
-                            if (m_ev && m_ev[1]) document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1];
-
-                            if (m_mask && m_mask[1]) document.querySelector('#form-tab3 input[name="param_mask"]').value = m_mask[1];
-                            if (m_cp && m_cp[1]) document.querySelector('#form-tab3 input[name="param_cp"]').value = m_cp[1];
-                            if (m_ca && m_ca[1]) document.querySelector('#form-tab3 input[name="param_ca"]').value = m_ca[1];
-                            if (m_eh && m_eh[1]) document.querySelector('#form-tab3 input[name="err_hor_max"]').value = m_eh[1];
-                            if (m_ev && m_ev[1]) document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1];
+                            if (m_mask && m_mask[1]) { document.querySelector('#form-tab4 input[name="param_mask"]').value = m_mask[1]; document.querySelector('#form-tab3 input[name="param_mask"]').value = m_mask[1]; }
+                            if (m_cp && m_cp[1]) { document.querySelector('#form-tab4 input[name="param_cp"]').value = m_cp[1]; document.querySelector('#form-tab3 input[name="param_cp"]').value = m_cp[1]; }
+                            if (m_ca && m_ca[1]) { document.querySelector('#form-tab4 input[name="param_ca"]').value = m_ca[1]; document.querySelector('#form-tab3 input[name="param_ca"]').value = m_ca[1]; }
+                            if (m_eh && m_eh[1]) { document.querySelector('#form-tab4 input[name="err_hor_max"]').value = m_eh[1]; document.querySelector('#form-tab3 input[name="err_hor_max"]').value = m_eh[1]; }
+                            if (m_ev && m_ev[1]) { document.querySelector('#form-tab4 input[name="err_ver_max"]').value = m_ev[1]; document.querySelector('#form-tab3 input[name="err_ver_max"]').value = m_ev[1]; }
                         }
                     }
                 }
-            } catch (err) {
-                display.innerHTML += "\n[ERROR] " + err.message;
-            }
+            } catch (err) { display.innerHTML += "\n[ERROR] " + err.message; }
         }
 
         async function submitTab2Form(e) {
@@ -363,7 +340,7 @@
             const form = e.target;
             const data = new FormData(form);
             const display = document.getElementById('console2');
-            display.innerHTML = "> Validando Estructura Orbital del Archivo Manual...\n";
+            display.innerHTML = "> Extrayendo malla efímera...\n";
             document.getElementById('btn-pdf-tab2')?.classList.add('hidden');
 
             let fullOutput = "";
@@ -393,16 +370,14 @@
                         const parts = fullOutput.split('//DATA_START//');
                         try {
                             const dataJson = JSON.parse(parts[1].trim());
-                            for (let key in dataJson) {
-                                window.gnssState[key] = dataJson[key];
-                                localStorage.setItem(key, dataJson[key]);
+                            if (dataJson.nav_content) {
+                                window.gnssState.nav_content = dataJson.nav_content;
+                                localStorage.setItem('nav_content', dataJson.nav_content);
                             }
-                        } catch(err) { console.error(err); }
+                        } catch(err) {}
                     }
                 }
-            } catch (err) {
-                display.innerHTML += "\n[ERROR] " + err.message;
-            }
+            } catch (err) { display.innerHTML += "\n[ERROR] " + err.message; }
         }
 
         function descargarTextoPDF(consoleId, nombreBase) {
@@ -422,23 +397,18 @@
                 doc.setFont("courier", "normal");
                 doc.setFontSize(10);
                 
-                let pos_y = 50; 
-                const pos_x = 40; 
+                let pos_y = 50; const pos_x = 40; 
                 
                 for(let i=0; i < reporteLimpio.length; i++) {
-                    if (pos_y > 750) { 
-                        doc.addPage();
-                        pos_y = 50;
-                    }
-                    doc.text(reporteLimpio[i], pos_x, pos_y);
-                    pos_y += 14; 
+                    if (pos_y > 750) { doc.addPage(); pos_y = 50; }
+                    doc.text(reporteLimpio[i], pos_x, pos_y); pos_y += 14; 
                 }
                 doc.save(nombreBase + '_' + new Date().getTime() + '.pdf');
-            } catch (error) { console.error("Error PDF: ", error); }
+            } catch (error) {}
         }
 
-        // Recuperación automática de persistencia local en carga
-        if(window.gnssState.base_calib_homo_content && window.gnssState.nav_content) {
+        // Activación de tabs en caso de recargar página y mantener datos vivos en localStorage
+        if(window.gnssState.url_base && window.gnssState.url_rover && window.gnssState.nav_content) {
             document.getElementById('btn-tab2').classList.remove('disabled-tab');
             document.getElementById('btn-tab3').classList.remove('disabled-tab');
             document.getElementById('btn-tab4').classList.remove('disabled-tab');
