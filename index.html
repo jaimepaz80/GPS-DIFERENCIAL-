@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GNSS Engine L1-Sinc DGPS (Opción C)</title>
+    <title>GNSS Engine L1-Sinc DGPS (Opción C Total)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -70,14 +70,14 @@
         </section>
 
         <section id="tab2" class="tab-content bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Carga Manual)</h2>
-            <p class="text-sm text-gray-400 mb-4">Cargue de forma manual el archivo de efemérides orbitales e ionosféricas (.nav o .rnx).</p>
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Efemérides Transmitidas (Enlace Directo)</h2>
+            <p class="text-sm text-gray-400 mb-4">Pegue el enlace de descarga directa del archivo de efemérides (.nav o .rnx) para evitar errores 413 Payload Too Large.</p>
             <form id="form-tab2" onsubmit="submitTab2Form(event)">
                 <div class="mb-4">
-                    <label class="block text-sm mb-1">Archivo de Efemérides de Navegación:</label>
-                    <input type="file" name="nav_file" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                    <label class="block text-sm mb-1">URL Archivo de Efemérides (.nav / .rnx):</label>
+                    <input type="url" name="url_nav" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600">
                 </div>
-                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Procesar y Validar Efemérides (.nav)</button>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition">Descargar y Validar Efemérides</button>
             </form>
             <div id="console2" class="console p-4 mt-4 h-48 overflow-y-auto border border-gray-700 rounded"></div>
             <button id="btn-pdf-tab2" onclick="descargarTextoPDF('console2', 'Informe_Efemerides')" class="hidden mt-4 bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded w-full shadow-lg">Descargar PDF de Efemérides</button>
@@ -240,7 +240,7 @@
         window.gnssState = {
             url_base: localStorage.getItem('url_base') || '',
             url_rover: localStorage.getItem('url_rover') || '',
-            nav_content: localStorage.getItem('nav_content') || ''
+            url_nav: localStorage.getItem('url_nav') || ''
         };
 
         function switchTab(num) {
@@ -266,15 +266,15 @@
             if (consoleId === 'console4') document.getElementById('btn-pdf-tab4')?.classList.add('hidden');
             if (consoleId === 'console1') document.getElementById('btn-pdf-tab1')?.classList.add('hidden');
 
-            // INYECCIÓN DE ESTADO SERVERLESS (OPCIÓN C)
+            // INYECCIÓN DE ESTADO SERVERLESS (OPCIÓN C TOTAL)
             if (url === '/tab3_calibrar') {
                 data.append('url_base', window.gnssState.url_base);
                 data.append('url_rover', window.gnssState.url_rover);
-                data.append('nav_content', window.gnssState.nav_content);
+                data.append('url_nav', window.gnssState.url_nav);
             }
             if (url === '/tab4_procesar') {
                 data.append('url_base', window.gnssState.url_base);
-                data.append('nav_content', window.gnssState.nav_content);
+                data.append('url_nav', window.gnssState.url_nav);
             }
 
             let fullOutput = "";
@@ -340,7 +340,7 @@
             const form = e.target;
             const data = new FormData(form);
             const display = document.getElementById('console2');
-            display.innerHTML = "> Extrayendo malla efímera...\n";
+            display.innerHTML = "> Ejecutando Bypass de URL para Efemérides...\n";
             document.getElementById('btn-pdf-tab2')?.classList.add('hidden');
 
             let fullOutput = "";
@@ -353,13 +353,7 @@
                     if (done) break;
                     let text = decoder.decode(value);
                     fullOutput += text;
-                    
-                    let idx = fullOutput.indexOf('//DATA_START//');
-                    if (idx !== -1) {
-                        display.innerHTML = fullOutput.substring(0, idx);
-                    } else {
-                        display.innerHTML = fullOutput;
-                    }
+                    display.innerHTML = fullOutput;
                     display.scrollTop = display.scrollHeight;
                     
                     if (text.includes('[SUCCESS]')) {
@@ -367,14 +361,10 @@
                         document.getElementById('btn-tab4').classList.remove('disabled-tab');
                         document.getElementById('btn-pdf-tab2').classList.remove('hidden');
                         
-                        const parts = fullOutput.split('//DATA_START//');
-                        try {
-                            const dataJson = JSON.parse(parts[1].trim());
-                            if (dataJson.nav_content) {
-                                window.gnssState.nav_content = dataJson.nav_content;
-                                localStorage.setItem('nav_content', dataJson.nav_content);
-                            }
-                        } catch(err) {}
+                        // ALMACENAR LA URL EN VEZ DEL CONTENIDO GIGANTE
+                        const uNav = form.querySelector('input[name="url_nav"]').value;
+                        localStorage.setItem('url_nav', uNav);
+                        window.gnssState.url_nav = uNav;
                     }
                 }
             } catch (err) { display.innerHTML += "\n[ERROR] " + err.message; }
@@ -408,7 +398,7 @@
         }
 
         // Activación de tabs en caso de recargar página y mantener datos vivos en localStorage
-        if(window.gnssState.url_base && window.gnssState.url_rover && window.gnssState.nav_content) {
+        if(window.gnssState.url_base && window.gnssState.url_rover && window.gnssState.url_nav) {
             document.getElementById('btn-tab2').classList.remove('disabled-tab');
             document.getElementById('btn-tab3').classList.remove('disabled-tab');
             document.getElementById('btn-tab4').classList.remove('disabled-tab');
