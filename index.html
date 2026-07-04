@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>GNSS Engine L1-Sinc DGPS (Vercel Edition)</title>
+    <title>GNSS Engine L1-Sinc DGPS (Vercel URL Edition)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -10,7 +10,6 @@
         .tab-content { display: none; }
         .tab-content.active { display: block; }
         .disabled-tab { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
-        /* Eliminar punteros de los botones de progreso para forzar secuencia unidireccional */
         #tabs-nav button { pointer-events: none; } 
     </style>
 </head>
@@ -29,16 +28,16 @@
         </nav>
 
         <section id="tab1" class="tab-content active bg-gray-800 p-6 rounded shadow-lg">
-            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (RINEX .obs)</h2>
+            <h2 class="text-xl mb-4 font-semibold border-b border-gray-600 pb-2">Archivos de Observación (URLs Nube)</h2>
             <form id="form-tab1" onsubmit="submitFormTab1(event)">
                 <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="block text-sm mb-1">Archivo Base Pivote (Sesión Completa):</label>
-                        <input type="file" id="obs_base_input" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <label class="block text-sm mb-1">Enlace Base Pivote (Drive, Dropbox, Firebase):</label>
+                        <input type="url" id="obs_base_input" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-sm">
                     </div>
                     <div>
-                        <label class="block text-sm mb-1">Archivo Rover 1 (Punto de Calibración):</label>
-                        <input type="file" id="obs_rover_input" required class="w-full bg-gray-700 p-2 rounded border border-gray-600">
+                        <label class="block text-sm mb-1">Enlace Rover 1 (Punto de Calibración):</label>
+                        <input type="url" id="obs_rover_input" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-gray-600 text-sm">
                     </div>
                 </div>
                 <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded font-bold transition shadow-lg">1. Sincronizar Épocas y Avanzar</button>
@@ -107,8 +106,8 @@
                 <div class="grid grid-cols-1 gap-4 mb-4">
                     <div>
                         <h3 class="text-blue-400 font-bold text-sm mb-2">NUEVO ARCHIVO ROVER (PUNTO DESCONOCIDO)</h3>
-                        <label class="block text-xs">Cargar Archivo RINEX Rover (.obs):</label>
-                        <input type="file" id="obs_rover_nuevo_input" required class="w-full bg-gray-700 p-2 rounded border border-blue-500">
+                        <label class="block text-xs">Enlace Nube Rover Nuevo (.obs):</label>
+                        <input type="url" id="obs_rover_nuevo_input" required placeholder="https://..." class="w-full bg-gray-700 p-2 rounded border border-blue-500 text-sm">
                     </div>
                 </div>
 
@@ -153,8 +152,8 @@
 
     <script>
         // MEMORIA GLOBAL PARA ARQUITECTURA SERVERLESS VERCEL
-        let globalBaseFile = null;
-        let globalRoverCalibFile = null;
+        let globalBaseUrl = null;
+        let globalRoverCalibUrl = null;
         let globalNavBlob = null;
 
         // Controlador de Avance Unidireccional y Bloqueante
@@ -162,12 +161,10 @@
             document.getElementById('tab' + current).classList.remove('active');
             document.getElementById('tab' + next).classList.add('active');
             
-            // Apagar y bloquear pestaña actual
             const btnCurrent = document.getElementById('btn-tab' + current);
             btnCurrent.classList.remove('bg-blue-600');
             btnCurrent.classList.add('bg-gray-700', 'disabled-tab');
             
-            // Encender pestaña siguiente
             const btnNext = document.getElementById('btn-tab' + next);
             btnNext.classList.remove('bg-gray-700', 'disabled-tab');
             btnNext.classList.add('bg-blue-600');
@@ -176,20 +173,17 @@
         // ================= TAB 1 =================
         async function submitFormTab1(e) {
             e.preventDefault();
-            const baseInput = document.getElementById('obs_base_input').files[0];
-            const roverInput = document.getElementById('obs_rover_input').files[0];
+            globalBaseUrl = document.getElementById('obs_base_input').value.trim();
+            globalRoverCalibUrl = document.getElementById('obs_rover_input').value.trim();
             
-            if (!baseInput || !roverInput) return;
-            
-            globalBaseFile = baseInput;
-            globalRoverCalibFile = roverInput;
+            if (!globalBaseUrl || !globalRoverCalibUrl) return;
 
             const data = new FormData();
-            data.append('obs_base', globalBaseFile);
-            data.append('obs_rover', globalRoverCalibFile);
+            data.append('url_base', globalBaseUrl);
+            data.append('url_rover', globalRoverCalibUrl);
             
             const display = document.getElementById('console1');
-            display.innerHTML = "> Procesando...\n";
+            display.innerHTML = "> Procesando descarga y homogeneización...\n";
             document.getElementById('btn-pdf-tab1').classList.add('hidden');
 
             try {
@@ -215,16 +209,16 @@
 
         // ================= TAB 2 =================
         async function submitTab2() {
-            if (!globalBaseFile) {
-                alert("Error de flujo: No hay archivo base en memoria.");
+            if (!globalBaseUrl) {
+                alert("Error de flujo: No hay URL base en memoria.");
                 return;
             }
 
             const display = document.getElementById('console2');
-            display.innerHTML = "> Conectando con IGS...\n";
+            display.innerHTML = "> Descargando temporalmente la Base y conectando con IGS...\n";
             
             const data = new FormData();
-            data.append('obs_base', globalBaseFile);
+            data.append('url_base', globalBaseUrl);
 
             let fullOutput = "";
 
@@ -239,7 +233,6 @@
                     let text = decoder.decode(value);
                     fullOutput += text;
 
-                    // Ocultar el contenido puro del .nav en la consola para no congelar la UI
                     let displayOutput = fullOutput;
                     const navStartIdx = displayOutput.indexOf('---NAV_DATA_START---');
                     if (navStartIdx !== -1) {
@@ -249,7 +242,6 @@
                     display.scrollTop = display.scrollHeight;
                     
                     if (fullOutput.includes('[SUCCESS]')) {
-                        // Extraer el archivo .nav del stream
                         const startTag = "---NAV_DATA_START---\n";
                         const endTag = "\n---NAV_DATA_END---";
                         const start = fullOutput.indexOf(startTag) + startTag.length;
@@ -275,18 +267,17 @@
             const form = e.target;
             const data = new FormData(form);
             
-            if (!globalBaseFile || !globalRoverCalibFile || !globalNavBlob) {
-                alert("Error crítico: Faltan archivos en la memoria RAM del navegador.");
+            if (!globalBaseUrl || !globalRoverCalibUrl || !globalNavBlob) {
+                alert("Error crítico: Faltan URLs o efemérides en la memoria RAM del navegador.");
                 return;
             }
 
-            // Inyectar estado a la petición de Vercel
-            data.append('obs_base', globalBaseFile);
-            data.append('obs_rover', globalRoverCalibFile);
+            data.append('url_base', globalBaseUrl);
+            data.append('url_rover', globalRoverCalibUrl);
             data.append('nav_file', globalNavBlob, 'auto_nav.nav');
 
             const display = document.getElementById('console3');
-            display.innerHTML = "> Inyectando Archivos y Procesando...\n";
+            display.innerHTML = "> Inyectando Enlaces y Procesando Motor Matemático...\n";
             document.getElementById('btn-pdf-tab3').classList.add('hidden');
             
             let fullOutput = "";
@@ -307,7 +298,6 @@
                     if (text.includes('[SUCCESS]')) {
                         document.getElementById('btn-pdf-tab3').classList.remove('hidden');
                         
-                        // ENLACE BIDIRECCIONAL: Inyectar datos calculados a Tab 4
                         document.querySelector('#form-tab4 input[name="utm_norte"]').value = document.querySelector('#form-tab3 input[name="utm_norte"]').value;
                         document.querySelector('#form-tab4 input[name="utm_este"]').value = document.querySelector('#form-tab3 input[name="utm_este"]').value;
                         document.querySelector('#form-tab4 input[name="utm_cota"]').value = document.querySelector('#form-tab3 input[name="utm_cota"]').value;
@@ -340,20 +330,19 @@
             const form = e.target;
             const data = new FormData(form);
             
-            const roverNuevoInput = document.getElementById('obs_rover_nuevo_input').files[0];
+            const roverNuevoUrl = document.getElementById('obs_rover_nuevo_input').value.trim();
             
-            if (!globalBaseFile || !globalNavBlob || !roverNuevoInput) {
-                alert("Error crítico: Faltan archivos físicos para el proceso final.");
+            if (!globalBaseUrl || !globalNavBlob || !roverNuevoUrl) {
+                alert("Error crítico: Faltan URLs o efemérides para el proceso final.");
                 return;
             }
 
-            // Inyectar estado a la petición
-            data.append('obs_base', globalBaseFile);
-            data.append('obs_rover_nuevo', roverNuevoInput);
+            data.append('url_base', globalBaseUrl);
+            data.append('url_rover_nuevo', roverNuevoUrl);
             data.append('nav_file', globalNavBlob, 'auto_nav.nav');
 
             const display = document.getElementById('console4');
-            display.innerHTML = "> Inyectando Archivos y Procesando...\n";
+            display.innerHTML = "> Inyectando Enlaces y Procesando Ajuste DGPS...\n";
             document.getElementById('btn-pdf-tab4').classList.add('hidden');
 
             try {
