@@ -771,7 +771,7 @@ def tab1_homogenizar():
             
             if not base_sinc: yield "\n> [ERROR FATAL] Cero épocas en común. Revisar rango horario."; return
             
-            yield generar_informe_homogeneizacion_detallado("Base", "Rover", base_raw_dict, rover_raw_dict, rover_sinc)
+            yield generar_informe_homogeneizacion_detallado("Base_Descargada", "Rover_Descargado", base_raw_dict, rover_raw_dict, rover_sinc)
             yield "\n[SUCCESS]"
         except Exception as e: yield f"\n> [ERROR] Falla estructural: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
@@ -875,9 +875,6 @@ def tab3_calibrar():
             lat_b, lon_b, _ = utm_a_geodesicas(utm_e, utm_n, utm_h, utm_hem)
             X_b, Y_b, Z_b = geodesicas_a_ecef(lat_b, lon_b, utm_c)
 
-            # =========================================================================
-            # FASE 1: CÁLCULO DETERMINISTA DE ERRORES MÁXIMOS (Eh, Ev)
-            # =========================================================================
             yield "[PROGRESO] Fase 1: Extrayendo Errores Máximos Permitidos...\n"
             
             coords_raw = []
@@ -905,9 +902,6 @@ def tab3_calibrar():
             yield f"  [*] Límite Horizontal Inyectado: {best_eh:.14f} m\n"
             yield f"  [*] Límite Vertical Inyectado: {best_ev:.14f} m\n\n"
             
-            # =========================================================================
-            # FASE 2: MALLA DETERMINISTA DE REFINAMIENTO SUCESIVO (GRID ZOOMING)
-            # =========================================================================
             yield "[PROGRESO] Fase 2: Malla Determinista para Parámetros (M, Cp, Ca)...\n"
             
             best_rmse = float('inf')
