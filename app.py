@@ -5,6 +5,7 @@ import urllib.request
 import gzip
 import shutil
 import ssl
+import re
 from flask import Flask, request, send_file, Response
 
 app = Flask(__name__)
@@ -713,25 +714,46 @@ def generar_informe_ascii(tipo, p_dict):
     return informe
 
 # =====================================================================
-# RUTAS FLASK (ESTRICTAS PARA VERCEL - STATELESS REDESIGN)
+# RUTAS FLASK (ESTRICTAS PARA VERCEL - URL BYPASS & STATELESS REDESIGN)
 # =====================================================================
+def descargar_desde_nube(url, destino):
+    """Fuerza la descarga cruda evadiendo visores HTML de Drive y Dropbox."""
+    if "drive.google.com" in url:
+        match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+        if match:
+            file_id = match.group(1)
+            url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    elif "dropbox.com" in url:
+        url = url.replace("?dl=0", "?dl=1").replace("&dl=0", "&dl=1")
+        
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        ctx = ssl.create_default_context()
+        with urllib.request.urlopen(req, context=ctx, timeout=60) as res, open(destino, 'wb') as f_out:
+            shutil.copyfileobj(res, f_out)
+        return True
+    except Exception as e:
+        raise Exception(f"Falla catastrófica al descargar URL: {str(e)}")
+
 @app.route('/')
 def index(): return send_file('index.html')
 
 @app.route('/tab1_homogenizar', methods=['POST'])
 def tab1_homogenizar():
-    bf = request.files.get('obs_base')
-    rf = request.files.get('obs_rover')
-    if not bf or not rf: return Response("> [ERROR CRÍTICO] Archivos físicos faltantes.\n", mimetype='text/plain')
+    url_b = request.form.get('url_base')
+    url_r = request.form.get('url_rover')
+    if not url_b or not url_r: return Response("> [ERROR CRÍTICO] URLs faltantes.\n", mimetype='text/plain')
     
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
-    bf.save(p_b_raw)
-    rf.save(p_r_raw)
 
     def procesar():
         try:
+            yield "> [SISTEMA] Descargando archivos físicos hacia /tmp/ (Bypass Vercel Payload)...\n"
+            descargar_desde_nube(url_b, p_b_raw)
+            descargar_desde_nube(url_r, p_r_raw)
+            
             yield f"> [SISTEMA] Iniciando Etapa 1: Emparejamiento Base Pivote y Rover de Calibración...\n"
             base_raw_dict = parse_rinex_obs_completo(p_b_raw)
             rover_raw_dict = parse_rinex_obs_completo(p_r_raw)
@@ -749,23 +771,24 @@ def tab1_homogenizar():
             
             if not base_sinc: yield "\n> [ERROR FATAL] Cero épocas en común. Revisar rango horario."; return
             
-            yield generar_informe_homogeneizacion_detallado(bf.filename, rf.filename, base_raw_dict, rover_raw_dict, rover_sinc)
+            yield generar_informe_homogeneizacion_detallado("Base", "Rover", base_raw_dict, rover_raw_dict, rover_sinc)
             yield "\n[SUCCESS]"
         except Exception as e: yield f"\n> [ERROR] Falla estructural: {str(e)}"
     return Response(procesar(), mimetype='text/plain')
 
 @app.route('/tab2_efemerides', methods=['POST'])
 def tab2_efemerides():
-    bf = request.files.get('obs_base')
-    if not bf: return Response("> [ERROR CRÍTICO] Archivo Base faltante.\n", mimetype='text/plain')
+    url_b = request.form.get('url_base')
+    if not url_b: return Response("> [ERROR CRÍTICO] URL de Base faltante.\n", mimetype='text/plain')
     
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
-    bf.save(p_b_raw)
 
     def procesar():
         try:
             yield "> [SISTEMA] Iniciando Etapa 2: Motor de Navegación Orbital e Ionosférico...\n"
+            descargar_desde_nube(url_b, p_b_raw)
+            
             ft = obtener_fecha_obs(p_b_raw)
             if not ft: yield "> [ERROR FATAL] Imposible extraer la fecha del archivo base.\n"; return
             
@@ -799,29 +822,30 @@ def tab3_calibrar():
     utm_e_r = safe_f(request.form.get('utm_este_r'), 0.0)
     utm_c_r = safe_f(request.form.get('utm_cota_r'), 0.0)
 
-    bf = request.files.get('obs_base')
-    rf = request.files.get('obs_rover')
+    url_b = request.form.get('url_base')
+    url_r = request.form.get('url_rover')
     navf = request.files.get('nav_file')
     
-    if not bf or not rf or not navf:
-        return Response("> [ERROR FATAL] Faltan archivos RINEX o Efemérides.\n", mimetype='text/plain')
+    if not url_b or not url_r or not navf:
+        return Response("> [ERROR FATAL] Faltan URLs o archivo de Efemérides.\n", mimetype='text/plain')
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_raw = os.path.join(UPLOAD_FOLDER, 'rover_calibracion_raw.obs')
     nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
     
-    bf.save(p_b_raw)
-    rf.save(p_r_raw)
     navf.save(nav_path)
 
     def procesar():
         try:
-            yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)...\n"
+            yield "> [SISTEMA] Descargando malla desde la nube a memoria efímera...\n"
+            descargar_desde_nube(url_b, p_b_raw)
+            descargar_desde_nube(url_r, p_r_raw)
+
+            yield "> [SISTEMA] Iniciando Búsqueda Determinista (Investigación de Operaciones OR)....\n"
             if utm_e == 0.0 or utm_n == 0.0 or utm_n_r == 0.0 or utm_e_r == 0.0: 
                 yield "> [ERROR] Coordenadas Base y Rover (Calibración) son requeridas.\n"; return
             
-            # RECONSTRUCCIÓN IDÉNTICA PARA CLON MATEMÁTICO PERFECTO (Forzando truncado string 14.3f)
             yield "[PROGRESO] Re-ensamblando Malla Temporal de Calibración...\n"
             obs_b_raw_raw = parse_rinex_obs_completo(p_b_raw)
             obs_r_raw_raw = parse_rinex_obs_completo(p_r_raw)
@@ -838,7 +862,6 @@ def tab3_calibrar():
             generar_rinex_sincronizado(p_b_raw, p_b_h, base_sinc)
             generar_rinex_sincronizado(p_r_raw, p_r_h, rover_sinc)
             
-            # FLUJO ORIGINAL DE CALIBRACIÓN A PARTIR DEL DISCO
             obs_b_raw = parse_rinex_obs_completo(p_b_h)
             obs_r_raw = parse_rinex_obs_completo(p_r_h)
             nav = parse_rinex_nav_real(nav_path)
@@ -983,26 +1006,27 @@ def tab4_procesar():
     err_hor_max = safe_f(request.form.get('err_hor_max'), 0.5)
     err_ver_max = safe_f(request.form.get('err_ver_max'), 0.5)
 
-    bf = request.files.get('obs_base')
-    rf_nuevo = request.files.get('obs_rover_nuevo')
+    url_b = request.form.get('url_base')
+    url_r_nuevo = request.form.get('url_rover_nuevo')
     navf = request.files.get('nav_file')
     
-    if not rf_nuevo or not bf or not navf: 
-        return Response("> [ERROR] Faltan archivos de proceso (Base, Rover Nuevo o Efemérides).\n", mimetype='text/plain')
+    if not url_r_nuevo or not url_b or not navf: 
+        return Response("> [ERROR] Faltan URLs o Efemérides para el proceso final.\n", mimetype='text/plain')
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     p_b_raw = os.path.join(UPLOAD_FOLDER, 'base_raw.obs')
     p_r_nuevo = os.path.join(UPLOAD_FOLDER, 'rover_nuevo_raw.obs')
     nav_path = os.path.join(UPLOAD_FOLDER, 'auto_nav.nav')
     
-    bf.save(p_b_raw)
-    rf_nuevo.save(p_r_nuevo)
     navf.save(nav_path)
-
-    rf_nuevo_filename = rf_nuevo.filename
+    rf_nuevo_filename = f"rover_nuevo_{url_r_nuevo[-8:]}.obs"
 
     def procesar():
         try:
+            yield "> [SISTEMA] Interceptando URLs y descargando en túnel cerrado...\n"
+            descargar_desde_nube(url_b, p_b_raw)
+            descargar_desde_nube(url_r_nuevo, p_r_nuevo)
+
             yield "> [SISTEMA] Iniciando Procesamiento DGPS (Punto Ciego Desconocido)...\n"
             if utm_e == 0.0 or utm_n == 0.0: 
                 yield "> [ERROR] Coordenadas Base incompletas.\n"; return
@@ -1062,7 +1086,7 @@ def tab4_procesar():
                 'nf': nf, 'ef': ef, 'zf': zf - h_r, 
                 'ret': ret, 'total': len(coords), 'std_n': std_n, 'std_e': std_e, 'std_z': std_z,
                 'ez': std_z, 'fix_r': fix_ratio,
-                'base_file': bf.filename or "base.obs",
+                'base_file': "Archivo_Nube_Base",
                 'rover_file': rf_nuevo_filename,
                 'nav_file': "auto_nav.nav",
                 'b_n': utm_n, 'b_e': utm_e, 'b_z': utm_c,
